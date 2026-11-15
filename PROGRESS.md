@@ -239,3 +239,29 @@ npm run build && npm run start
 ```
 
 Open [http://localhost:3000](http://localhost:3000) or [http://localhost:3000/demo](http://localhost:3000/demo).
+
+---
+
+## 9. Live Production Deployment Status
+
+- **Status:** **LIVE & HEALTHY** (HTTP 200 OK)
+- **Production URL:** [https://proofloom-six.vercel.app](https://proofloom-six.vercel.app)
+- **Deployment Hash / Alias:** `proofloom-b11zpqeqk-2k24cs1o2411627-1320.vercel.app` &rarr; `proofloom-six.vercel.app`
+- **Vercel Project:** `2k24cs1o2411627-1320/proofloom`
+- **Database Backend:** Supabase Cloud PostgreSQL with Row-Level Security (`wbpcebryqqlmztyumlil.supabase.co`)
+- **Configured Production Secrets / Environment Variables:**
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+  - `GEMINI_API_KEY`
+  - `AI_PROVIDER` (`gemini`)
+  - `AI_MODEL` (`gemini-2.5-flash`)
+  - `DEMO_MODE_ENABLED` (`true`)
+  - `DEMO_PASSWORD`
+  - `NEXT_PUBLIC_APP_URL` (`https://proofloom-six.vercel.app`)
+  - `MAX_UPLOAD_MB` (`10`)
+  - `AI_MAX_REQUESTS_PER_USER_PER_HOUR` (`100`)
+- **Live Health Verification:**
+  - `GET /` &rarr; `200 OK` (Edge Prerendered with custom fonts, neo-brutalist theme, and security headers)
+  - `GET /login` &rarr; `200 OK` (Preloaded woff2 fonts and CSP)
+  - `GET /demo` &rarr; Demo switcher operational for all 4 roles.

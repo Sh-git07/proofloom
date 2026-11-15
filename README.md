@@ -3,6 +3,18 @@
 > **Where every brand claim has a thread of proof.**  
 > The intelligent verification and governance layer between content creation and publication.
 
+[![Production](https://img.shields.io/badge/Production-Live%20on%20Vercel-16834A?style=flat-square)](https://proofloom-six.vercel.app)
+[![Tests](https://img.shields.io/badge/Tests-54%2F54%20Passing-B7F28B?style=flat-square&labelColor=17251C)](https://proofloom-six.vercel.app)
+
+---
+
+## Live Deployment
+
+- **Production URL:** [https://proofloom-six.vercel.app](https://proofloom-six.vercel.app)
+- **Instant Demo Switcher:** [https://proofloom-six.vercel.app/demo](https://proofloom-six.vercel.app/demo)
+- **Database:** Supabase Cloud (PostgreSQL 15 + RLS + Custom RPCs)
+- **Hosting:** Vercel Edge & Serverless Cloud Functions
+
 ---
 
 ## What is PROOFLOOM?
@@ -26,7 +38,7 @@ PROOFLOOM is an AI-powered Brand Governance and Brand Integrity Platform built f
 - **AI Engine:** Google Gemini REST API (`gemini-2.5-flash`) with offline deterministic demo fallback
 - **Analytics & Visuals:** Recharts + Framer Motion + Lucide React
 - **Document Ingestion:** unpdf (Serverless-safe PDF parsing) + mammoth (DOCX) + UTF-8 TXT
-- **Test Suite:** Vitest (12 test suites, 48 tests) + ESLint
+- **Test Suite:** Vitest (13 test suites, 54 tests) + ESLint
 
 ---
 
