@@ -13,20 +13,44 @@ export default async function InsightsPage() {
   const supabase = await createClient();
   const orgId = context?.organisation.id;
 
-  // 1. Fetch audits with content items
-  const { data: auditsRaw } = await supabase
-    .from("audits")
-    .select(`
-      id,
-      overall_score,
-      status,
-      created_at,
-      content_items(department)
-    `)
-    .eq("organisation_id", orgId)
-    .order("created_at", { ascending: true });
+  // 1-3. Fetch audits, approved content count, and audit findings in parallel
+  const [auditsRes, approvedRes, findingsRes] = await Promise.all([
+    supabase
+      .from("audits")
+      .select(`
+        id,
+        overall_score,
+        status,
+        created_at,
+        content_items(department)
+      `)
+      .eq("organisation_id", orgId)
+      .order("created_at", { ascending: true })
+      .limit(100),
+    supabase
+      .from("content_items")
+      .select("*", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
+      .eq("status", "APPROVED"),
+    supabase
+      .from("audit_findings")
+      .select(`
+        id,
+        category,
+        severity,
+        excerpt,
+        recommended_action,
+        created_at,
+        audits(
+          id,
+          content_items(department)
+        )
+      `)
+      .eq("organisation_id", orgId)
+      .limit(200),
+  ]);
 
-  const audits = auditsRaw || [];
+  const audits = auditsRes.data || [];
   const totalAudits = audits.length;
   const averageScore =
     totalAudits > 0
@@ -35,34 +59,11 @@ export default async function InsightsPage() {
         )
       : 100;
 
-  // 2. Fetch content items approved
-  const { count: approvedCount } = await supabase
-    .from("content_items")
-    .select("*", { count: "exact", head: true })
-    .eq("organisation_id", orgId)
-    .eq("status", "APPROVED");
-
+  const approvedCount = approvedRes.count;
   const approvalRate =
     totalAudits > 0 ? Math.round(((approvedCount || 0) / totalAudits) * 100) : 85;
 
-  // 3. Fetch audit findings for dimension breakdown and violations
-  const { data: findingsRaw } = await supabase
-    .from("audit_findings")
-    .select(`
-      id,
-      category,
-      severity,
-      excerpt,
-      recommended_action,
-      created_at,
-      audits(
-        id,
-        content_items(department)
-      )
-    `)
-    .eq("organisation_id", orgId);
-
-  const findings = findingsRaw || [];
+  const findings = findingsRes.data || [];
 
   // Group by department
   const deptMap = new Map<string, { count: number; totalScore: number; criticalIssues: number }>();

@@ -12,23 +12,24 @@ export default async function KnowledgePage() {
 
   const supabase = await createClient();
 
-  const { data: facts } = await supabase
-    .from("approved_facts")
-    .select("*")
-    .eq("organisation_id", context.organisation.id)
-    .order("created_at", { ascending: false });
-
-  const { data: terms } = await supabase
-    .from("terminology_rules")
-    .select("*")
-    .eq("organisation_id", context.organisation.id)
-    .order("created_at", { ascending: false });
-
-  const { data: guidelines } = await supabase
-    .from("brand_guidelines")
-    .select("*")
-    .eq("organisation_id", context.organisation.id)
-    .order("created_at", { ascending: false });
+  // Fetch facts, terms, and guidelines in parallel
+  const [{ data: facts }, { data: terms }, { data: guidelines }] = await Promise.all([
+    supabase
+      .from("approved_facts")
+      .select("*")
+      .eq("organisation_id", context.organisation.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("terminology_rules")
+      .select("*")
+      .eq("organisation_id", context.organisation.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("brand_guidelines")
+      .select("*")
+      .eq("organisation_id", context.organisation.id)
+      .order("created_at", { ascending: false }),
+  ]);
 
   return (
     <div className="space-y-6">

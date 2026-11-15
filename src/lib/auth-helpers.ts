@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { OrgRole } from "./permissions";
 
@@ -19,7 +20,7 @@ export interface CurrentUserContext {
   aiMode: "live_ai" | "demo";
 }
 
-export async function getCurrentUserContext(): Promise<CurrentUserContext | null> {
+export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext | null> => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -29,20 +30,23 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext | null
     return null;
   }
 
-  // Look up profile
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, department")
-    .eq("id", user.id)
-    .single();
+  // Look up profile and organisation membership in parallel
+  const [profileRes, memberRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name, department")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("organisation_members")
+      .select("organisation_id, role, organisations(id, name, slug, is_demo)")
+      .eq("user_id", user.id)
+      .limit(1)
+      .single(),
+  ]);
 
-  // Look up organisation membership
-  const { data: member } = await supabase
-    .from("organisation_members")
-    .select("organisation_id, role, organisations(id, name, slug, is_demo)")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
+  const profile = profileRes.data;
+  const member = memberRes.data;
 
   if (!member || !member.organisations) {
     return null;
@@ -76,4 +80,4 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext | null
     isDemoMode: process.env.DEMO_MODE_ENABLED === "true" || org.is_demo,
     aiMode: isLive ? "live_ai" : "demo",
   };
-}
+});

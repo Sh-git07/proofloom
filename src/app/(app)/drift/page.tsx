@@ -7,18 +7,18 @@ export default async function DriftPage() {
   const supabase = await createClient();
   const orgId = context?.organisation.id;
 
-  // 1. Fetch drift insights
-  const { data: rawInsights } = await supabase
-    .from("drift_insights")
-    .select("*")
-    .eq("organisation_id", orgId)
-    .order("frequency", { ascending: false });
-
-  // 2. Fetch total audits count
-  const { count: auditsCount } = await supabase
-    .from("audits")
-    .select("*", { count: "exact", head: true })
-    .eq("organisation_id", orgId);
+  // 1-2. Fetch drift insights and total audits count in parallel
+  const [{ data: rawInsights }, { count: auditsCount }] = await Promise.all([
+    supabase
+      .from("drift_insights")
+      .select("*")
+      .eq("organisation_id", orgId)
+      .order("frequency", { ascending: false }),
+    supabase
+      .from("audits")
+      .select("*", { count: "exact", head: true })
+      .eq("organisation_id", orgId),
+  ]);
 
   const insights: DriftInsightItem[] = (rawInsights || []).map((d) => ({
     id: d.id,

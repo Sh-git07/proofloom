@@ -8,7 +8,7 @@ export default async function AuditsPage() {
   const supabase = await createClient();
   const orgId = context?.organisation.id;
 
-  // 1. Fetch audits with content items
+  // 1. Fetch audits with content items (limit to most recent 50)
   const { data: auditsRaw } = await supabase
     .from("audits")
     .select(`
@@ -20,7 +20,8 @@ export default async function AuditsPage() {
       content_items(id, title, content_type, platform, department)
     `)
     .eq("organisation_id", orgId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(25);
 
   // 2. Fetch critical findings for these audits
   const auditIds = (auditsRaw || []).map((a) => a.id);

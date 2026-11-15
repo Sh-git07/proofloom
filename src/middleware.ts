@@ -2,6 +2,26 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  const isAuthRoute = path === "/login" || path === "/demo";
+  const isAppRoute =
+    path.startsWith("/overview") ||
+    path.startsWith("/studio") ||
+    path.startsWith("/audits") ||
+    path.startsWith("/knowledge") ||
+    path.startsWith("/provenance") ||
+    path.startsWith("/reviews") ||
+    path.startsWith("/drift") ||
+    path.startsWith("/insights") ||
+    path.startsWith("/team") ||
+    path.startsWith("/settings");
+
+  // Skip auth checks on non-app/non-auth routes immediately without touching Supabase
+  if (!isAuthRoute && !isAppRoute) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -27,26 +47,9 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // IMPORTANT: Avoid writing any logic between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could compromise auth.
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const path = request.nextUrl.pathname;
-
-  const isAuthRoute = path === "/login" || path === "/demo";
-  const isAppRoute =
-    path.startsWith("/overview") ||
-    path.startsWith("/studio") ||
-    path.startsWith("/audits") ||
-    path.startsWith("/knowledge") ||
-    path.startsWith("/provenance") ||
-    path.startsWith("/reviews") ||
-    path.startsWith("/drift") ||
-    path.startsWith("/insights") ||
-    path.startsWith("/team") ||
-    path.startsWith("/settings");
 
   // If trying to access protected app routes without authentication
   if (!user && isAppRoute) {
@@ -68,6 +71,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff|woff2|ttf|eot|ico|css|js)$).*)",
   ],
 };

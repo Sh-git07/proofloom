@@ -29,78 +29,85 @@ export default async function OverviewPage() {
   const orgId = context?.organisation.id;
   const supabase = await createClient();
 
-  // 1. Fetch Audits
-  const { data: audits } = await supabase
-    .from("audits")
-    .select(`
-      id,
-      overall_score,
-      status,
-      mode,
-      created_at,
-      content_items(title, content_type, department)
-    `)
-    .eq("organisation_id", orgId)
-    .order("created_at", { ascending: false });
+  // Run all independent queries in parallel via Promise.all
+  const [
+    auditsRes,
+    pendingReviewRes,
+    criticalFindingsRes,
+    verifiedClaimsRes,
+    resolvedIssuesRes,
+    activityLogsRes,
+    driftAlertsRes,
+    approvedFactsRes,
+  ] = await Promise.all([
+    supabase
+      .from("audits")
+      .select(`
+        id,
+        overall_score,
+        status,
+        mode,
+        created_at,
+        content_items(title, content_type, department)
+      `)
+      .eq("organisation_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(25),
+    supabase
+      .from("content_items")
+      .select("*", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
+      .in("status", ["READY_FOR_REVIEW", "IN_REVIEW"]),
+    supabase
+      .from("audit_findings")
+      .select("*", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
+      .eq("severity", "CRITICAL")
+      .eq("is_resolved", false),
+    supabase
+      .from("extracted_claims")
+      .select("*", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
+      .eq("verification_status", "VERIFIED"),
+    supabase
+      .from("audit_findings")
+      .select("*", { count: "exact", head: true })
+      .eq("organisation_id", orgId)
+      .eq("is_resolved", true),
+    supabase
+      .from("activity_logs")
+      .select("id, action, target_type, target_id, details, created_at")
+      .eq("organisation_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(7),
+    supabase
+      .from("drift_insights")
+      .select("id, title, summary, insight_type, frequency, is_seeded")
+      .eq("organisation_id", orgId)
+      .limit(3),
+    supabase
+      .from("approved_facts")
+      .select("id, approval_status")
+      .eq("organisation_id", orgId),
+  ]);
 
-  const totalAudits = audits?.length || 0;
+  const audits = auditsRes.data || [];
+  const pendingReviewCount = pendingReviewRes.count;
+  const criticalFindingsCount = criticalFindingsRes.count;
+  const verifiedClaimsCount = verifiedClaimsRes.count;
+  const resolvedIssuesCount = resolvedIssuesRes.count;
+  const activityLogs = activityLogsRes.data || [];
+  const driftAlerts = driftAlertsRes.data || [];
+  const approvedFacts = approvedFactsRes.data || [];
+
+  const totalAudits = audits.length;
   const avgScore =
     totalAudits > 0
       ? Math.round(
-          audits!.reduce((acc, curr) => acc + (curr.overall_score || 0), 0) /
+          audits.reduce((acc, curr) => acc + (curr.overall_score || 0), 0) /
             totalAudits
         )
       : 100;
-
-  // 2. Fetch Pending Review items
-  const { count: pendingReviewCount } = await supabase
-    .from("content_items")
-    .select("*", { count: "exact", head: true })
-    .eq("organisation_id", orgId)
-    .in("status", ["READY_FOR_REVIEW", "IN_REVIEW"]);
-
-  // 3. Fetch Critical Findings count
-  const { count: criticalFindingsCount } = await supabase
-    .from("audit_findings")
-    .select("*", { count: "exact", head: true })
-    .eq("organisation_id", orgId)
-    .eq("severity", "CRITICAL")
-    .eq("is_resolved", false);
-
-  // 4. Fetch Verified Claims count
-  const { count: verifiedClaimsCount } = await supabase
-    .from("extracted_claims")
-    .select("*", { count: "exact", head: true })
-    .eq("organisation_id", orgId)
-    .eq("verification_status", "VERIFIED");
-
-  // 5. Fetch Issues Resolved
-  const { count: resolvedIssuesCount } = await supabase
-    .from("audit_findings")
-    .select("*", { count: "exact", head: true })
-    .eq("organisation_id", orgId)
-    .eq("is_resolved", true);
-
-  // 6. Fetch Recent Activity Logs
-  const { data: activityLogs } = await supabase
-    .from("activity_logs")
-    .select("id, action, target_type, target_id, details, created_at")
-    .eq("organisation_id", orgId)
-    .order("created_at", { ascending: false })
-    .limit(7);
-
-  // 7. Fetch Drift Insights
-  const { data: driftAlerts } = await supabase
-    .from("drift_insights")
-    .select("id, title, summary, insight_type, frequency, is_seeded")
-    .eq("organisation_id", orgId)
-    .limit(3);
-
-  // 8. Fetch Knowledge Source Health
-  const { data: approvedFacts } = await supabase
-    .from("approved_facts")
-    .select("id, name, value, approval_status, expires_at")
-    .eq("organisation_id", orgId);
 
   const activeFactsCount =
     approvedFacts?.filter((f) => f.approval_status === "APPROVED").length || 0;

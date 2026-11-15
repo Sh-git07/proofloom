@@ -31,46 +31,66 @@ export default async function ReviewsPage({
       profiles(full_name, email)
     `)
     .eq("organisation_id", orgId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(30);
 
-  // 2. Fetch versions for these content items
   const itemIds = (contentItemsRaw || []).map((ci) => ci.id);
-  const { data: versionsRaw } = itemIds.length > 0
-    ? await supabase
-        .from("content_versions")
-        .select("id, content_item_id, version_no, body, created_at")
-        .in("content_item_id", itemIds)
-        .order("version_no", { ascending: false })
-    : { data: [] };
 
-  // 3. Fetch latest audits and findings for these items
-  const { data: auditsRaw } = itemIds.length > 0
-    ? await supabase
-        .from("audits")
-        .select(`
-          id,
-          content_item_id,
-          overall_score,
-          status,
-          created_at,
-          audit_findings(id, category, severity, excerpt, explanation, is_resolved)
-        `)
-        .in("content_item_id", itemIds)
-        .order("created_at", { ascending: false })
-    : { data: [] };
+  // 2-5. Fetch dependent versions, audits, assignments, and challenges in parallel
+  const [versionsRes, auditsRes, assignmentsRes, challengesRes] = await Promise.all([
+    itemIds.length > 0
+      ? supabase
+          .from("content_versions")
+          .select("id, content_item_id, version_no, body, created_at")
+          .in("content_item_id", itemIds)
+          .order("version_no", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    itemIds.length > 0
+      ? supabase
+          .from("audits")
+          .select(`
+            id,
+            content_item_id,
+            overall_score,
+            status,
+            created_at,
+            audit_findings(id, category, severity, excerpt, explanation, is_resolved)
+          `)
+          .in("content_item_id", itemIds)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    itemIds.length > 0
+      ? supabase
+          .from("review_assignments")
+          .select(`
+            content_item_id,
+            reviewer_id,
+            profiles(full_name)
+          `)
+          .in("content_item_id", itemIds)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    supabase
+      .from("finding_challenges")
+      .select(`
+        id,
+        finding_id,
+        reason,
+        context,
+        status,
+        created_at,
+        profiles(full_name),
+        audit_findings(excerpt, severity, category, explanation)
+      `)
+      .eq("organisation_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(30),
+  ]);
 
-  // 4. Fetch assignments
-  const { data: assignmentsRaw } = itemIds.length > 0
-    ? await supabase
-        .from("review_assignments")
-        .select(`
-          content_item_id,
-          reviewer_id,
-          profiles(full_name)
-        `)
-        .in("content_item_id", itemIds)
-        .order("created_at", { ascending: false })
-    : { data: [] };
+  const versionsRaw = versionsRes.data || [];
+  const auditsRaw = auditsRes.data || [];
+  const assignmentsRaw = assignmentsRes.data || [];
+  const challengesRaw = challengesRes.data || [];
 
   // Assemble ReviewQueueItem array
   const queueItems: ReviewQueueItem[] = (contentItemsRaw || []).map((item) => {
@@ -124,22 +144,6 @@ export default async function ReviewsPage({
       versions: itemVersions,
     };
   });
-
-  // 5. Fetch Brand Memory Court Challenges
-  const { data: challengesRaw } = await supabase
-    .from("finding_challenges")
-    .select(`
-      id,
-      finding_id,
-      reason,
-      context,
-      status,
-      created_at,
-      profiles(full_name),
-      audit_findings(excerpt, severity, category, explanation)
-    `)
-    .eq("organisation_id", orgId)
-    .order("created_at", { ascending: false });
 
   const challenges: ChallengeItem[] = (challengesRaw || []).map((c) => {
     const p = c.profiles as unknown as { full_name: string } | null;

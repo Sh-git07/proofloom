@@ -17,34 +17,35 @@ export default async function ProvenancePage({
   const { claim: claimQuery } = await searchParams;
   const supabase = await createClient();
 
-  // 1. Fetch extracted claims
-  const { data: claims } = await supabase
-    .from("extracted_claims")
-    .select(`
-      id,
-      claim_text,
-      claim_type,
-      start_index,
-      end_index,
-      verification_status,
-      tolerance_variance_percent,
-      comparison_explanation,
-      created_at,
-      matched_fact:approved_facts(id, name, value, approval_status, expires_at, superseded_by),
-      audit:audits(
+  // 1-2. Fetch extracted claims and approved facts in parallel
+  const [{ data: claims }, { data: facts }] = await Promise.all([
+    supabase
+      .from("extracted_claims")
+      .select(`
         id,
-        content_items(title, platform, department)
-      )
-    `)
-    .eq("organisation_id", context.organisation.id)
-    .order("created_at", { ascending: false });
-
-  // 2. Fetch approved facts for reassessment dropdown
-  const { data: facts } = await supabase
-    .from("approved_facts")
-    .select("id, name, value, approval_status, expires_at")
-    .eq("organisation_id", context.organisation.id)
-    .order("name", { ascending: true });
+        claim_text,
+        claim_type,
+        start_index,
+        end_index,
+        verification_status,
+        tolerance_variance_percent,
+        comparison_explanation,
+        created_at,
+        matched_fact:approved_facts(id, name, value, approval_status, expires_at, superseded_by),
+        audit:audits(
+          id,
+          content_items(title, platform, department)
+        )
+      `)
+      .eq("organisation_id", context.organisation.id)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("approved_facts")
+      .select("id, name, value, approval_status, expires_at")
+      .eq("organisation_id", context.organisation.id)
+      .order("name", { ascending: true }),
+  ]);
 
   const formattedClaims = (claims as unknown as ClaimProvenanceItem[]) || [];
 

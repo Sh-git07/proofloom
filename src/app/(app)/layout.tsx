@@ -23,7 +23,7 @@ export default async function AppLayout({
     .select("id, title, message, type, link, is_read, created_at")
     .eq("user_id", context.user.id)
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(5);
 
   const notifications: NotificationItem[] = (notificationsRaw || []).map((n) => ({
     id: n.id,
