@@ -1,12 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserContext } from "@/lib/auth-helpers";
 import Link from "next/link";
+import { AuditHistoryView, AuditRecord } from "@/components/audits/AuditHistoryView";
 
 export default async function AuditsPage() {
   const context = await getCurrentUserContext();
   const supabase = await createClient();
+  const orgId = context?.organisation.id;
 
-  const { data: audits } = await supabase
+  // 1. Fetch audits with content items
+  const { data: auditsRaw } = await supabase
     .from("audits")
     .select(`
       id,
@@ -16,8 +19,44 @@ export default async function AuditsPage() {
       created_at,
       content_items(id, title, content_type, platform, department)
     `)
-    .eq("organisation_id", context?.organisation.id)
+    .eq("organisation_id", orgId)
     .order("created_at", { ascending: false });
+
+  // 2. Fetch critical findings for these audits
+  const auditIds = (auditsRaw || []).map((a) => a.id);
+  const { data: findingsRaw } = auditIds.length > 0
+    ? await supabase
+        .from("audit_findings")
+        .select("audit_id, severity, is_resolved")
+        .in("audit_id", auditIds)
+        .eq("severity", "CRITICAL")
+        .eq("is_resolved", false)
+    : { data: [] };
+
+  const criticalMap = new Map<string, number>();
+  (findingsRaw || []).forEach((f) => {
+    criticalMap.set(f.audit_id, (criticalMap.get(f.audit_id) || 0) + 1);
+  });
+
+  const audits: AuditRecord[] = (auditsRaw || []).map((a) => {
+    const item = a.content_items as unknown as {
+      id: string;
+      title: string;
+      content_type: string;
+      platform: string;
+      department: string;
+    } | null;
+
+    return {
+      id: a.id,
+      overall_score: a.overall_score,
+      status: a.status,
+      mode: a.mode,
+      created_at: a.created_at,
+      content_item: item,
+      critical_count: criticalMap.get(a.id) || 0,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -30,91 +69,19 @@ export default async function AuditsPage() {
             VERIFICATION AUDIT LOGS
           </h1>
           <p className="text-xs sm:text-sm text-[#637367]">
-            Historical archive of all automated and human-reviewed brand checks.
+            Historical archive of all automated and human-reviewed brand checks across your organization.
           </p>
         </div>
 
         <Link
           href="/studio"
-          className="brutal-btn brutal-btn-primary px-4 py-2 text-xs font-mono font-bold"
+          className="brutal-btn brutal-btn-primary px-4 py-2 text-xs font-mono font-bold self-start sm:self-auto"
         >
           + NEW AUDIT
         </Link>
       </div>
 
-      <div className="brutal-card bg-white p-5 overflow-x-auto">
-        <table className="w-full text-left font-mono text-xs">
-          <thead>
-            <tr className="border-b-2 border-[#253C2B] bg-[#F4F1E8] text-[#637367]">
-              <th className="py-2.5 px-3">AUDIT ID</th>
-              <th className="py-2.5 px-3">TITLE</th>
-              <th className="py-2.5 px-3">DEPT</th>
-              <th className="py-2.5 px-3">TYPE</th>
-              <th className="py-2.5 px-3">SCORE</th>
-              <th className="py-2.5 px-3">STATUS</th>
-              <th className="py-2.5 px-3">DATE</th>
-              <th className="py-2.5 px-3 text-right">DETAILS</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y border-b-2 border-[#253C2B]">
-            {audits?.map((audit) => {
-              const item = audit.content_items as unknown as {
-                id: string;
-                title: string;
-                content_type: string;
-                platform: string;
-                department: string;
-              } | null;
-
-              return (
-                <tr key={audit.id} className="hover:bg-[#F4F1E8] transition-colors">
-                  <td className="py-3 px-3 font-bold text-[#637367]">
-                    #{audit.id.slice(0, 8)}
-                  </td>
-                  <td className="py-3 px-3 font-bold text-[#17251C]">
-                    {item?.title || "Draft"}
-                  </td>
-                  <td className="py-3 px-3 text-[#637367]">
-                    {item?.department || "General"}
-                  </td>
-                  <td className="py-3 px-3 text-[#637367]">
-                    {item?.content_type || "Post"}
-                  </td>
-                  <td className="py-3 px-3">
-                    <span
-                      className={`font-bold ${
-                        (audit.overall_score || 0) >= 80
-                          ? "text-[#16834A]"
-                          : (audit.overall_score || 0) >= 60
-                          ? "text-[#E6A23C]"
-                          : "text-[#D94C4C]"
-                      }`}
-                    >
-                      {audit.overall_score || 0}/100
-                    </span>
-                  </td>
-                  <td className="py-3 px-3">
-                    <span className="px-2 py-0.5 text-[10px] font-bold brutal-border bg-[#F4F1E8]">
-                      {audit.status}
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-[#637367]">
-                    {new Date(audit.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="py-3 px-3 text-right">
-                    <Link
-                      href={`/audits/${audit.id}`}
-                      className="text-[#16834A] font-bold hover:underline"
-                    >
-                      REPORT &rarr;
-                    </Link>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <AuditHistoryView audits={audits} />
     </div>
   );
 }

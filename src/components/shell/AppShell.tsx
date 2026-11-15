@@ -18,7 +18,6 @@ import {
   Menu,
   X,
   Search,
-  Bell,
   Plus,
   LogOut,
   Building,
@@ -26,6 +25,7 @@ import {
 import { OrgRole } from "@/lib/permissions";
 import { signOutUser } from "@/app/actions/auth";
 import { StatusLED } from "@/components/ui/status-led";
+import { NotificationsPopover, NotificationItem } from "@/components/shell/NotificationsPopover";
 
 interface AppShellProps {
   user: {
@@ -43,6 +43,7 @@ interface AppShellProps {
   role: OrgRole;
   isDemoMode: boolean;
   aiMode: "live_ai" | "demo";
+  notifications?: NotificationItem[];
   children: React.ReactNode;
 }
 
@@ -65,6 +66,7 @@ export function AppShell({
   role,
   isDemoMode,
   aiMode,
+  notifications = [],
   children,
 }: AppShellProps) {
   const pathname = usePathname();
@@ -282,17 +284,8 @@ export function AppShell({
                 />
               </div>
 
-              {/* Notifications */}
-              <Link
-                href="/overview"
-                className="relative p-2 bg-[#F4F1E8] brutal-border hover:bg-[#DDEBDD] transition-colors"
-                title="Notifications"
-              >
-                <Bell className="w-4 h-4 text-[#17251C]" />
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#D94C4C] text-white font-mono text-[9px] font-bold flex items-center justify-center rounded-full">
-                  2
-                </span>
-              </Link>
+              {/* Notifications Popover */}
+              <NotificationsPopover initialNotifications={notifications} />
 
               {/* + NEW AUDIT Button */}
               <Link

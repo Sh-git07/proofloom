@@ -1,38 +1,191 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserContext } from "@/lib/auth-helpers";
-import { CheckSquare, ShieldCheck } from "lucide-react";
+import {
+  ReviewQueueWorkbench,
+  ReviewQueueItem,
+  ChallengeItem,
+} from "@/components/reviews/ReviewQueueWorkbench";
 
-export default async function ReviewsPage() {
+export default async function ReviewsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ item?: string }>;
+}) {
   const context = await getCurrentUserContext();
   const supabase = await createClient();
+  const resolvedParams = searchParams ? await searchParams : undefined;
+  const orgId = context?.organisation.id;
 
-  const { data: queueItems } = await supabase
+  // 1. Fetch content items eligible for review
+  const { data: contentItemsRaw } = await supabase
     .from("content_items")
     .select(`
       id,
       title,
       content_type,
+      platform,
       department,
       status,
       created_at,
-      profiles(full_name)
+      creator_id,
+      profiles(full_name, email)
     `)
-    .eq("organisation_id", context?.organisation.id)
-    .in("status", ["READY_FOR_REVIEW", "IN_REVIEW", "REVISION_REQUIRED", "APPROVED", "REJECTED"])
+    .eq("organisation_id", orgId)
     .order("created_at", { ascending: false });
 
-  const { data: challenges } = await supabase
+  // 2. Fetch versions for these content items
+  const itemIds = (contentItemsRaw || []).map((ci) => ci.id);
+  const { data: versionsRaw } = itemIds.length > 0
+    ? await supabase
+        .from("content_versions")
+        .select("id, content_item_id, version_no, body, created_at")
+        .in("content_item_id", itemIds)
+        .order("version_no", { ascending: false })
+    : { data: [] };
+
+  // 3. Fetch latest audits and findings for these items
+  const { data: auditsRaw } = itemIds.length > 0
+    ? await supabase
+        .from("audits")
+        .select(`
+          id,
+          content_item_id,
+          overall_score,
+          status,
+          created_at,
+          audit_findings(id, category, severity, excerpt, explanation, is_resolved)
+        `)
+        .in("content_item_id", itemIds)
+        .order("created_at", { ascending: false })
+    : { data: [] };
+
+  // 4. Fetch assignments
+  const { data: assignmentsRaw } = itemIds.length > 0
+    ? await supabase
+        .from("review_assignments")
+        .select(`
+          content_item_id,
+          reviewer_id,
+          profiles(full_name)
+        `)
+        .in("content_item_id", itemIds)
+        .order("created_at", { ascending: false })
+    : { data: [] };
+
+  // Assemble ReviewQueueItem array
+  const queueItems: ReviewQueueItem[] = (contentItemsRaw || []).map((item) => {
+    const itemVersions = (versionsRaw || [])
+      .filter((v) => v.content_item_id === item.id)
+      .map((v) => ({
+        id: v.id,
+        version_no: v.version_no,
+        body: v.body,
+        created_at: v.created_at,
+      }));
+
+    const latestAuditRaw = (auditsRaw || []).find((a) => a.content_item_id === item.id);
+    const findings = (latestAuditRaw?.audit_findings as unknown as Array<{
+      id: string;
+      category: string;
+      severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+      excerpt: string;
+      explanation: string;
+      is_resolved: boolean;
+    }>) || [];
+
+    const criticalCount = findings.filter(
+      (f) => f.severity === "CRITICAL" && !f.is_resolved
+    ).length;
+
+    const assignment = (assignmentsRaw || []).find((a) => a.content_item_id === item.id);
+    const reviewerProfile = assignment?.profiles as unknown as { full_name: string } | null;
+    const authorProfile = item.profiles as unknown as { full_name: string; email: string } | null;
+
+    return {
+      id: item.id,
+      title: item.title,
+      content_type: item.content_type,
+      platform: item.platform,
+      department: item.department || "General",
+      status: item.status,
+      created_at: item.created_at,
+      assigned_reviewer_id: assignment?.reviewer_id || null,
+      author: authorProfile ? { full_name: authorProfile.full_name, email: authorProfile.email } : null,
+      assigned_reviewer: reviewerProfile ? { full_name: reviewerProfile.full_name } : null,
+      latest_audit: latestAuditRaw
+        ? {
+            id: latestAuditRaw.id,
+            overall_score: latestAuditRaw.overall_score,
+            status: latestAuditRaw.status,
+            critical_findings_count: criticalCount,
+            findings,
+          }
+        : null,
+      versions: itemVersions,
+    };
+  });
+
+  // 5. Fetch Brand Memory Court Challenges
+  const { data: challengesRaw } = await supabase
     .from("finding_challenges")
     .select(`
       id,
+      finding_id,
       reason,
       context,
       status,
       created_at,
-      audit_findings(excerpt, severity, finding_code)
+      profiles(full_name),
+      audit_findings(excerpt, severity, category, explanation)
     `)
-    .eq("organisation_id", context?.organisation.id)
+    .eq("organisation_id", orgId)
     .order("created_at", { ascending: false });
+
+  const challenges: ChallengeItem[] = (challengesRaw || []).map((c) => {
+    const p = c.profiles as unknown as { full_name: string } | null;
+    const f = c.audit_findings as unknown as {
+      excerpt: string;
+      severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+      category: string;
+      explanation: string;
+    } | null;
+
+    return {
+      id: c.id,
+      finding_id: c.finding_id,
+      reason: c.reason,
+      context: c.context,
+      status: c.status,
+      created_at: c.created_at,
+      submitted_by_profile: p ? { full_name: p.full_name } : null,
+      finding: f ? {
+        excerpt: f.excerpt,
+        severity: f.severity,
+        category: f.category,
+        explanation: f.explanation,
+      } : null,
+    };
+  });
+
+  // 6. Fetch reviewers in organisation (admin, brand_manager, reviewer)
+  const { data: membersRaw } = await supabase
+    .from("organisation_members")
+    .select(`
+      user_id,
+      role,
+      profiles(full_name)
+    `)
+    .eq("organisation_id", orgId)
+    .in("role", ["admin", "brand_manager", "reviewer"]);
+
+  const reviewers = (membersRaw || []).map((m) => {
+    const p = m.profiles as unknown as { full_name: string } | null;
+    return {
+      id: m.user_id,
+      name: p?.full_name || "Team Member",
+      role: m.role,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -44,83 +197,17 @@ export default async function ReviewsPage() {
           HUMAN GOVERNANCE & SIGN-OFF
         </h1>
         <p className="text-xs sm:text-sm text-[#637367]">
-          Authorized sign-off queue and Brand Memory Court for resolving contested findings.
+          Authorised multi-tier sign-off workbench with database-enforced critical override gates and Brand Memory Court adjudication.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pending Approvals Queue */}
-        <div className="brutal-card p-5 bg-white space-y-4">
-          <div className="flex items-center justify-between border-b-2 border-[#253C2B] pb-2">
-            <span className="font-mono text-xs font-bold text-[#17251C] uppercase flex items-center space-x-1.5">
-              <CheckSquare className="w-4 h-4 text-[#16834A]" />
-              <span>CONTENT REVIEW QUEUE ({queueItems?.length || 0})</span>
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {queueItems?.map((item) => {
-              const creator = item.profiles as unknown as { full_name: string } | null;
-
-              return (
-                <div key={item.id} className="p-3 brutal-border bg-[#F4F1E8] space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs text-[#17251C]">
-                      {item.title}
-                    </span>
-                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 bg-white brutal-border">
-                      {item.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between font-mono text-[10px] text-[#637367]">
-                    <span>Creator: {creator?.full_name || "Author"} &bull; {item.department}</span>
-                    <span>{new Date(item.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Brand Memory Court Challenges */}
-        <div className="brutal-card p-5 bg-white space-y-4">
-          <div className="flex items-center justify-between border-b-2 border-[#253C2B] pb-2">
-            <span className="font-mono text-xs font-bold text-[#17251C] uppercase flex items-center space-x-1.5">
-              <ShieldCheck className="w-4 h-4 text-[#16834A]" />
-              <span>BRAND MEMORY COURT CHALLENGES ({challenges?.length || 0})</span>
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {challenges?.map((c) => {
-              const finding = c.audit_findings as unknown as {
-                excerpt: string;
-                severity: string;
-                finding_code: string;
-              } | null;
-
-              return (
-                <div key={c.id} className="p-3 brutal-border bg-[#F4F1E8] space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-bold text-[#D94C4C]">
-                      {finding?.finding_code}: &ldquo;{finding?.excerpt}&rdquo;
-                    </span>
-                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 bg-[#B7F28B] brutal-border">
-                      {c.status}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#17251C] font-medium">
-                    Reason: {c.reason}
-                  </p>
-                  <p className="text-[11px] text-[#637367]">
-                    Context: {c.context}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      <ReviewQueueWorkbench
+        queueItems={queueItems}
+        challenges={challenges}
+        reviewers={reviewers}
+        userRole={context?.role || "viewer"}
+        initialSelectedItemId={resolvedParams?.item}
+      />
     </div>
   );
 }

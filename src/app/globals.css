@@ -125,6 +125,93 @@ code, kbd, samp, pre, .font-mono {
   border-radius: 2px;
 }
 
+.brutal-card {
+  background-color: #FFFFFF;
+  border: 2px solid #253C2B;
+  box-shadow: 4px 4px 0px #253C2B;
+  border-radius: 2px;
+}
+
+.brutal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 2px solid #253C2B;
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.brutal-btn-primary {
+  background-color: #16834A;
+  color: #FFFFFF;
+  box-shadow: 2px 2px 0px #253C2B;
+}
+
+.brutal-btn-primary:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px #253C2B;
+}
+
+.brutal-btn-primary:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px #253C2B;
+}
+
+.brutal-btn-lime {
+  background-color: #B7F28B;
+  color: #17251C;
+  box-shadow: 2px 2px 0px #253C2B;
+}
+
+.brutal-btn-lime:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px #253C2B;
+}
+
+.brutal-btn-lime:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px #253C2B;
+}
+
+.brutal-btn-secondary {
+  background-color: #FFFFFF;
+  color: #17251C;
+  box-shadow: 2px 2px 0px #253C2B;
+}
+
+.brutal-btn-secondary:hover {
+  background-color: #F4F1E8;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px #253C2B;
+}
+
+.brutal-btn-secondary:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px #253C2B;
+}
+
+.brutal-btn-danger {
+  background-color: #D94C4C;
+  color: #FFFFFF;
+  box-shadow: 2px 2px 0px #253C2B;
+}
+
+.brutal-btn-danger:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px #253C2B;
+}
+
+.brutal-btn-danger:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px #253C2B;
+}
+
 .brutal-interactive {
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
