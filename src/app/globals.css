@@ -1,141 +1,174 @@
 @import "tailwindcss";
 
 :root {
-  --primary-green: #16834A;
-  --signal-lime: #B7F28B;
-  --machine-black: #17251C;
-  --blueprint-paper: #F4F1E8;
-  --card-white: #FFFFFF;
-  --muted-green: #DDEBDD;
-  --border-green: #253C2B;
-  --secondary-text: #637367;
-  --warning-amber: #E6A23C;
-  --critical-red: #D94C4C;
+  /* Exact Design Tokens from PROOFLOOM Spec Section 13 */
+  --paper: #F4F1E8;             /* App background / Blueprint paper */
+  --ink: #17251C;               /* Machine black / Primary text */
+  --green: #16834A;             /* Primary green */
+  --lime: #B7F28B;              /* Signal lime */
+  --muted: #DDEBDD;             /* Muted green */
+  --border: #253C2B;            /* Border green (2px solid) */
+  --secondary: #637367;         /* Secondary text */
+  --amber: #E6A23C;             /* Warning amber */
+  --red: #D94C4C;               /* Critical red */
+  --white: #FFFFFF;             /* Panel white */
 
-  --background: var(--blueprint-paper);
-  --foreground: var(--machine-black);
+  /* Semantic UI mappings */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--white);
+  --card-foreground: var(--ink);
+  --primary: var(--green);
+  --primary-foreground: #FFFFFF;
+  --accent: var(--lime);
+  --accent-foreground: var(--ink);
+  --destructive: var(--red);
+  --destructive-foreground: #FFFFFF;
+  --muted-background: var(--muted);
+  --muted-foreground: var(--secondary);
+
+  /* Hard offset shadows */
+  --shadow-brutal-sm: 2px 2px 0px #253C2B;
+  --shadow-brutal: 4px 4px 0px #253C2B;
+  --shadow-brutal-lg: 6px 6px 0px #253C2B;
+  --shadow-brutal-xl: 8px 8px 0px #253C2B;
 }
 
 @theme {
-  --color-brand-primary: #16834A;
-  --color-brand-lime: #B7F28B;
-  --color-brand-black: #17251C;
-  --color-brand-paper: #F4F1E8;
-  --color-brand-muted: #DDEBDD;
-  --color-brand-border: #253C2B;
-  --color-brand-secondary: #637367;
-  --color-brand-amber: #E6A23C;
-  --color-brand-red: #D94C4C;
+  --color-paper: #F4F1E8;
+  --color-ink: #17251C;
+  --color-green: #16834A;
+  --color-lime: #B7F28B;
+  --color-muted: #DDEBDD;
+  --color-border: #253C2B;
+  --color-secondary: #637367;
+  --color-amber: #E6A23C;
+  --color-red: #D94C4C;
+  --color-white: #FFFFFF;
+
+  --color-background: #F4F1E8;
+  --color-foreground: #17251C;
+  --color-primary: #16834A;
+  --color-primary-foreground: #FFFFFF;
+  --color-accent: #B7F28B;
+  --color-accent-foreground: #17251C;
+  --color-destructive: #D94C4C;
+  --color-destructive-foreground: #FFFFFF;
 
   --font-display: var(--font-space-grotesk), sans-serif;
-  --font-body: var(--font-inter), sans-serif;
+  --font-sans: var(--font-inter), sans-serif;
   --font-mono: var(--font-jetbrains-mono), monospace;
 }
 
-body {
-  background-color: var(--blueprint-paper);
-  color: var(--machine-black);
-  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
+/* Global Reset & Engineering Aesthetics */
+* {
+  border-color: #253C2B;
 }
 
-/* Neo-Brutalist Hard Offset Shadows */
+body {
+  background-color: #F4F1E8;
+  color: #17251C;
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-image: radial-gradient(#253C2B15 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-space-grotesk), sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #17251C;
+}
+
+code, kbd, samp, pre, .font-mono {
+  font-family: var(--font-jetbrains-mono), monospace;
+}
+
+/* Neo-Brutalist Structural Tokens */
 .brutal-border {
   border: 2px solid #253C2B;
 }
 
+.brutal-border-t {
+  border-top: 2px solid #253C2B;
+}
+
+.brutal-border-b {
+  border-bottom: 2px solid #253C2B;
+}
+
+.brutal-border-l {
+  border-left: 2px solid #253C2B;
+}
+
+.brutal-border-r {
+  border-right: 2px solid #253C2B;
+}
+
 .brutal-shadow {
-  box-shadow: 4px 4px 0 #253C2B;
+  box-shadow: 4px 4px 0px #253C2B;
 }
 
 .brutal-shadow-sm {
-  box-shadow: 2px 2px 0 #253C2B;
+  box-shadow: 2px 2px 0px #253C2B;
 }
 
 .brutal-shadow-lg {
-  box-shadow: 6px 6px 0 #253C2B;
+  box-shadow: 6px 6px 0px #253C2B;
 }
 
-.brutal-card {
+.brutal-panel {
   background-color: #FFFFFF;
   border: 2px solid #253C2B;
-  box-shadow: 4px 4px 0 #253C2B;
+  box-shadow: 4px 4px 0px #253C2B;
   border-radius: 2px;
 }
 
-.brutal-card-hover {
-  transition: all 0.15s ease-in-out;
+.brutal-interactive {
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
-.brutal-card-hover:hover {
+.brutal-interactive:hover {
   transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 #253C2B;
+  box-shadow: 6px 6px 0px #253C2B;
 }
 
-.brutal-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-jetbrains-mono), monospace;
-  font-weight: 600;
-  text-transform: uppercase;
-  border: 2px solid #253C2B;
-  box-shadow: 3px 3px 0 #253C2B;
-  border-radius: 2px;
-  transition: all 0.1s ease;
-  cursor: pointer;
-}
-
-.brutal-btn:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 #253C2B;
-}
-
-.brutal-btn:active {
+.brutal-interactive:active {
   transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 #253C2B;
+  box-shadow: 2px 2px 0px #253C2B;
 }
 
-.brutal-btn-primary {
-  background-color: #16834A;
-  color: #FFFFFF;
+/* 3px Focus Outline */
+:focus-visible {
+  outline: 3px solid #16834A !important;
+  outline-offset: 2px !important;
 }
 
-.brutal-btn-primary:hover {
-  background-color: #126e3e;
-}
-
-.brutal-btn-lime {
-  background-color: #B7F28B;
-  color: #17251C;
-}
-
-.brutal-btn-secondary {
-  background-color: #FFFFFF;
-  color: #17251C;
-}
-
-.brutal-btn-secondary:hover {
-  background-color: #F4F1E8;
-}
-
-/* Pulsing LED Indicator */
+/* Pulsing Status LEDs */
 .status-led {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .status-led-live {
   background-color: #B7F28B;
-  box-shadow: 0 0 8px #B7F28B;
+  box-shadow: 0 0 6px #B7F28B;
   animation: pulse-led 2s infinite ease-in-out;
 }
 
 .status-led-demo {
   background-color: #E6A23C;
-  box-shadow: 0 0 8px #E6A23C;
+  box-shadow: 0 0 6px #E6A23C;
+}
+
+.status-led-critical {
+  background-color: #D94C4C;
+  box-shadow: 0 0 6px #D94C4C;
+  animation: pulse-led 1s infinite ease-in-out;
 }
 
 @keyframes pulse-led {
