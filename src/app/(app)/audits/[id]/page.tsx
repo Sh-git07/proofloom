@@ -98,8 +98,30 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
         body: version?.body || "",
         version_no: version?.version_no || 1,
       }}
-      initialStages={stages || []}
-      initialFindings={findings || []}
+      initialStages={(stages || []).map((s) => ({
+        id: s.id,
+        stage_number: s.stage_number,
+        stage_name: s.stage_key || s.stage_name || `[0${s.stage_number}] STAGE`,
+        status: s.status,
+        started_at: s.started_at,
+        completed_at: s.finished_at,
+        error_message: s.error,
+      }))}
+      initialFindings={(findings || []).map((f) => ({
+        id: f.id,
+        category: (f.category === "claim_reliability" ? "claims" : f.category) as "voice" | "claims" | "terminology" | "accessibility" | "visual",
+        severity: f.severity as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO",
+        excerpt: f.excerpt,
+        start_index: f.start_offset ?? 0,
+        end_index: f.end_offset ?? 0,
+        explanation: f.explanation,
+        guideline_reference: f.guideline_reference,
+        verification_status: f.verification_status,
+        recommended_action: f.recommended_action,
+        suggested_replacement: f.suggested_replacement,
+        confidence: f.confidence as "high" | "medium" | "low",
+        is_resolved: f.is_resolved,
+      }))}
     />
   );
 }

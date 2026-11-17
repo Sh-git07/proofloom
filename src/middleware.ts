@@ -15,13 +15,36 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/drift") ||
     path.startsWith("/insights") ||
     path.startsWith("/team") ||
-    path.startsWith("/settings");
+    path.startsWith("/settings") ||
+    path.startsWith("/help");
 
   // Skip auth checks on non-app/non-auth routes immediately without touching Supabase
   if (!isAuthRoute && !isAppRoute) {
     return NextResponse.next({ request });
   }
 
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token"));
+
+  // If trying to access protected app routes without any auth cookie, redirect immediately
+  if (!hasAuthCookie && isAppRoute) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("redirect", path);
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // For RSC / client page transitions where the user has an auth cookie:
+  // Bypass external Supabase Auth network call in middleware.
+  // The destination Server Component (AppLayout) validates the user and enforces RLS.
+  const isRscRequest =
+    request.headers.get("rsc") === "1" || request.nextUrl.searchParams.has("_rsc");
+  if (isRscRequest && hasAuthCookie && isAppRoute) {
+    return NextResponse.next({ request });
+  }
+
+  // For non-RSC full page navigations, manage session via @supabase/ssr
   let supabaseResponse = NextResponse.next({
     request,
   });

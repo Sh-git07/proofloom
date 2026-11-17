@@ -201,6 +201,9 @@ export function ContentStudioForm({ isDemoMode = false }: { isDemoMode?: boolean
       const result = await createAuditSubmission(formData);
       if (result.success && result.auditId) {
         router.push(`/audits/${result.auditId}`);
+      } else {
+        setFormError(result.error || "Failed to initiate audit");
+        setIsSubmitting(false);
       }
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : "Failed to initiate audit");

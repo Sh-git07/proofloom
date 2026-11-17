@@ -17,71 +17,77 @@ const submissionSchema = z.object({
 });
 
 export async function createAuditSubmission(formData: FormData) {
-  const context = await getCurrentUserContext();
-  if (!context) {
-    throw new Error("Unauthorized");
+  try {
+    const context = await getCurrentUserContext();
+    if (!context) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const raw = {
+      title: formData.get("title") as string,
+      contentType: formData.get("contentType") as string,
+      platform: formData.get("platform") as string,
+      department: formData.get("department") as string,
+      campaignContext: (formData.get("campaignContext") as string) || undefined,
+      objective: (formData.get("objective") as string) || undefined,
+      body: formData.get("body") as string,
+      mode: (formData.get("mode") as "live_ai" | "demo") || "live_ai",
+    };
+
+    const validated = submissionSchema.parse(raw);
+    const supabase = await createClient();
+
+    // 1. Insert content_items (immutable original metadata)
+    const { data: contentItem, error: itemErr } = await supabase
+      .from("content_items")
+      .insert({
+        organisation_id: context.organisation.id,
+        creator_id: context.user.id,
+        title: validated.title,
+        content_type: validated.contentType,
+        platform: validated.platform,
+        department: validated.department,
+        campaign_context: validated.campaignContext,
+        objective: validated.objective,
+        status: "DRAFT",
+      })
+      .select("id")
+      .single();
+
+    if (itemErr || !contentItem) {
+      return { success: false, error: `Failed to create content item: ${itemErr?.message || "Unknown error"}` };
+    }
+
+    // 2. Insert content_versions (Original submission is Version 1 and never overwritten)
+    const { data: version, error: versionErr } = await supabase
+      .from("content_versions")
+      .insert({
+        content_item_id: contentItem.id,
+        organisation_id: context.organisation.id,
+        created_by: context.user.id,
+        version_no: 1,
+        source: "original",
+        body: validated.body,
+        change_summary: "Initial submission",
+      })
+      .select("id")
+      .single();
+
+    if (versionErr || !version) {
+      return { success: false, error: `Failed to save content version: ${versionErr?.message || "Unknown error"}` };
+    }
+
+    // 3. Initialize staged audit pipeline (creates audit + 7 audit_stages rows)
+    const auditId = await initializeAudit({
+      organisationId: context.organisation.id,
+      contentItemId: contentItem.id,
+      contentVersionId: version.id,
+      mode: validated.mode,
+    });
+
+    return { success: true, auditId };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: message };
   }
-
-  const raw = {
-    title: formData.get("title") as string,
-    contentType: formData.get("contentType") as string,
-    platform: formData.get("platform") as string,
-    department: formData.get("department") as string,
-    campaignContext: (formData.get("campaignContext") as string) || undefined,
-    objective: (formData.get("objective") as string) || undefined,
-    body: formData.get("body") as string,
-    mode: (formData.get("mode") as "live_ai" | "demo") || "live_ai",
-  };
-
-  const validated = submissionSchema.parse(raw);
-  const supabase = await createClient();
-
-  // 1. Insert content_items (immutable original metadata)
-  const { data: contentItem, error: itemErr } = await supabase
-    .from("content_items")
-    .insert({
-      organisation_id: context.organisation.id,
-      created_by: context.user.id,
-      title: validated.title,
-      content_type: validated.contentType,
-      platform: validated.platform,
-      department: validated.department,
-      campaign_context: validated.campaignContext,
-      objective: validated.objective,
-      status: "DRAFT",
-    })
-    .select("id")
-    .single();
-
-  if (itemErr || !contentItem) {
-    throw new Error(`Failed to create content item: ${itemErr?.message}`);
-  }
-
-  // 2. Insert content_versions (Original submission is Version 1 and never overwritten)
-  const { data: version, error: versionErr } = await supabase
-    .from("content_versions")
-    .insert({
-      content_item_id: contentItem.id,
-      organisation_id: context.organisation.id,
-      created_by: context.user.id,
-      version_no: 1,
-      body: validated.body,
-      change_summary: "Initial submission",
-    })
-    .select("id")
-    .single();
-
-  if (versionErr || !version) {
-    throw new Error(`Failed to save content version: ${versionErr?.message}`);
-  }
-
-  // 3. Initialize staged audit pipeline (creates audit + 7 audit_stages rows)
-  const auditId = await initializeAudit({
-    organisationId: context.organisation.id,
-    contentItemId: contentItem.id,
-    contentVersionId: version.id,
-    mode: validated.mode,
-  });
-
-  return { success: true, auditId };
 }

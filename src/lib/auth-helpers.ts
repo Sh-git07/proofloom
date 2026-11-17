@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { OrgRole } from "./permissions";
+import { NotificationItem } from "@/components/shell/NotificationsPopover";
 
 export interface CurrentUserContext {
   user: {
@@ -18,6 +19,7 @@ export interface CurrentUserContext {
   role: OrgRole;
   isDemoMode: boolean;
   aiMode: "live_ai" | "demo";
+  notifications: NotificationItem[];
 }
 
 export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext | null> => {
@@ -30,8 +32,8 @@ export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext 
     return null;
   }
 
-  // Look up profile and organisation membership in parallel
-  const [profileRes, memberRes] = await Promise.all([
+  // Look up profile, organisation membership, and notifications in parallel
+  const [profileRes, memberRes, notifsRes] = await Promise.all([
     supabase
       .from("profiles")
       .select("full_name, department")
@@ -43,6 +45,12 @@ export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext 
       .eq("user_id", user.id)
       .limit(1)
       .single(),
+    supabase
+      .from("notifications")
+      .select("id, title, message, type, link, is_read, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(5),
   ]);
 
   const profile = profileRes.data;
@@ -59,25 +67,32 @@ export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext 
     is_demo: boolean;
   };
 
-  const hasApiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5);
-  const aiProvider = process.env.AI_PROVIDER || "gemini";
-  const isLive = hasApiKey && aiProvider !== "demo";
+  const notifications: NotificationItem[] = (notifsRes.data || []).map((n) => ({
+    id: n.id,
+    title: n.title,
+    message: n.message,
+    type: n.type,
+    link: n.link,
+    is_read: n.is_read,
+    created_at: n.created_at,
+  }));
 
   return {
     user: {
       id: user.id,
       email: user.email || "",
-      fullName: profile?.full_name || user.email?.split("@")[0] || "User",
+      fullName: profile?.full_name || user.user_metadata?.full_name || "Platform User",
       department: profile?.department,
     },
     organisation: {
       id: org.id,
       name: org.name,
       slug: org.slug,
-      isDemo: org.is_demo,
+      isDemo: org.is_demo ?? false,
     },
-    role: member.role as OrgRole,
-    isDemoMode: process.env.DEMO_MODE_ENABLED === "true" || org.is_demo,
-    aiMode: isLive ? "live_ai" : "demo",
+    role: (member.role as OrgRole) || "creator",
+    isDemoMode: org.is_demo ?? false,
+    aiMode: "live_ai",
+    notifications,
   };
 });

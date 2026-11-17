@@ -8,31 +8,31 @@ export default async function AuditsPage() {
   const supabase = await createClient();
   const orgId = context?.organisation.id;
 
-  // 1. Fetch audits with content items (limit to most recent 50)
-  const { data: auditsRaw } = await supabase
-    .from("audits")
-    .select(`
-      id,
-      overall_score,
-      status,
-      mode,
-      created_at,
-      content_items(id, title, content_type, platform, department)
-    `)
-    .eq("organisation_id", orgId)
-    .order("created_at", { ascending: false })
-    .limit(25);
+  // Fetch audits and critical findings in parallel
+  const [auditsRes, findingsRes] = await Promise.all([
+    supabase
+      .from("audits")
+      .select(`
+        id,
+        overall_score,
+        status,
+        mode,
+        created_at,
+        content_items(id, title, content_type, platform, department)
+      `)
+      .eq("organisation_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(25),
+    supabase
+      .from("audit_findings")
+      .select("audit_id, severity, is_resolved")
+      .eq("organisation_id", orgId)
+      .eq("severity", "CRITICAL")
+      .eq("is_resolved", false),
+  ]);
 
-  // 2. Fetch critical findings for these audits
-  const auditIds = (auditsRaw || []).map((a) => a.id);
-  const { data: findingsRaw } = auditIds.length > 0
-    ? await supabase
-        .from("audit_findings")
-        .select("audit_id, severity, is_resolved")
-        .in("audit_id", auditIds)
-        .eq("severity", "CRITICAL")
-        .eq("is_resolved", false)
-    : { data: [] };
+  const auditsRaw = auditsRes.data;
+  const findingsRaw = findingsRes.data;
 
   const criticalMap = new Map<string, number>();
   (findingsRaw || []).forEach((f) => {

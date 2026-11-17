@@ -28,7 +28,8 @@ import {
 interface AuditStage {
   id: string;
   stage_number: number;
-  stage_name: string;
+  stage_name?: string;
+  stage_key?: string;
   status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "REQUIRES_REVIEW";
   started_at?: string;
   completed_at?: string;
@@ -435,7 +436,7 @@ export function AuditReportView({
                       <span className="w-2 h-2 rounded-full bg-[#637367]" />
                     )}
                     <span className="font-bold text-xs tracking-wider">
-                      {stage.stage_name}
+                      {stage.stage_name || stage.stage_key}
                     </span>
                   </div>
 

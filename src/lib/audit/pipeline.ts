@@ -50,14 +50,14 @@ export async function initializeAudit({
     .single();
 
   if (auditErr || !audit) {
-    throw new Error(`Failed to create audit row: ${auditErr?.message}`);
+    throw new Error(`Failed to create audit row: ${auditErr?.message || "Unknown error"}`);
   }
 
   // Create all 7 audit_stages rows with QUEUED status
   const stageRows = STAGE_NAMES.map((name, idx) => ({
     audit_id: audit.id,
     stage_number: idx + 1,
-    stage_name: name,
+    stage_key: name,
     status: "QUEUED",
   }));
 
@@ -94,7 +94,7 @@ export async function executeNextStage(auditId: string) {
     .single();
 
   if (auditErr || !audit) {
-    throw new Error(`Audit not found: ${auditErr?.message}`);
+    throw new Error(`Audit not found: ${auditErr?.message || "Unknown error"}`);
   }
 
   // 2. Fetch stages
@@ -105,7 +105,7 @@ export async function executeNextStage(auditId: string) {
     .order("stage_number", { ascending: true });
 
   if (stagesErr || !stages) {
-    throw new Error(`Failed to fetch audit stages: ${stagesErr?.message}`);
+    throw new Error(`Failed to fetch audit stages: ${stagesErr?.message || "Unknown error"}`);
   }
 
   // Find next QUEUED or FAILED stage
@@ -126,7 +126,7 @@ export async function executeNextStage(auditId: string) {
     .update({
       status: "PROCESSING",
       started_at: new Date().toISOString(),
-      error_message: null,
+      error: null,
     })
     .eq("id", stageId);
 
@@ -188,11 +188,11 @@ export async function executeNextStage(auditId: string) {
             audit_id: auditId,
             organisation_id: orgId,
             claim_text: c.text,
-            claim_type: c.claimType,
-            start_index: c.startIndex,
-            end_index: c.endIndex,
+            claim_type: c.claimType === "numerical" || c.claimType === "factual" || c.claimType === "comparative" || c.claimType === "promotional" || c.claimType === "opinion" ? c.claimType : "factual",
+            start_offset: c.startIndex,
+            end_offset: c.endIndex,
             verification_status: "UNSUPPORTED",
-            comparison_explanation: "Awaiting source verification comparison.",
+            confidence: "high",
           }));
 
           await supabase.from("extracted_claims").insert(rows);
@@ -223,44 +223,60 @@ export async function executeNextStage(auditId: string) {
         const rawClaims = extractClaimsDeterministic(contentBody);
 
         const newFindings: Array<{
+          finding_code: string;
           audit_id: string;
           organisation_id: string;
-          category: AuditDimension;
+          category: string;
           severity: AuditSeverity;
           excerpt: string;
-          start_index: number;
-          end_index: number;
+          start_offset: number;
+          end_offset: number;
           explanation: string;
           guideline_reference: string;
-          evidence_source_id?: string;
           verification_status: string;
           recommended_action: string;
           suggested_replacement?: string;
-          confidence: string;
+          confidence: "high" | "medium" | "low";
           is_resolved: boolean;
+          claim_id?: string;
         }> = [];
 
         if (storedClaims && storedClaims.length > 0) {
+          let idx = 0;
           for (const claim of storedClaims) {
+            idx++;
             const raw = rawClaims.find((r) => r.text === claim.claim_text) || {
               text: claim.claim_text,
-              startIndex: claim.start_index,
-              endIndex: claim.end_index,
+              startIndex: claim.start_offset ?? 0,
+              endIndex: claim.end_offset ?? claim.claim_text.length,
               claimType: claim.claim_type as "numerical" | "factual" | "comparative" | "promotional" | "opinion",
             };
 
             const verified = verifyClaimAgainstEvidence(raw, (facts as unknown as DatabaseFact[]) || [], tolerance);
 
-            // Update extracted_claims row
+            // Update extracted_claims row status
             await supabase
               .from("extracted_claims")
               .update({
-                matched_fact_id: verified.matchedFact?.id || null,
                 verification_status: verified.status,
-                tolerance_variance_percent: verified.variancePercent || null,
-                comparison_explanation: verified.explanation,
               })
               .eq("id", claim.id);
+
+            // If matched with an approved fact, record evidence match
+            if (verified.matchedFact) {
+              await supabase.from("evidence_matches").insert({
+                organisation_id: orgId,
+                audit_id: auditId,
+                claim_id: claim.id,
+                approved_fact_id: verified.matchedFact.id,
+                excerpt: raw.text,
+                result: verified.status,
+                comparison: {
+                  explanation: verified.explanation,
+                  variance_percent: verified.variancePercent || null,
+                },
+              });
+            }
 
             // If not verified, create an audit finding
             if (verified.status !== "VERIFIED") {
@@ -282,18 +298,18 @@ export async function executeNextStage(auditId: string) {
               }
 
               newFindings.push({
+                finding_code: `FND-CLM-${idx}`,
                 audit_id: auditId,
                 organisation_id: orgId,
-                category: "claims",
+                category: "claim_reliability",
                 severity,
                 excerpt: raw.text,
-                start_index: raw.startIndex,
-                end_index: raw.endIndex,
+                start_offset: raw.startIndex,
+                end_offset: raw.endIndex,
                 explanation: verified.explanation,
                 guideline_reference: verified.matchedFact
                   ? `Approved Fact: ${verified.matchedFact.name}`
                   : "Claim Provenance & Evidence Standard §2.1",
-                evidence_source_id: verified.matchedFact?.id,
                 verification_status: verified.status,
                 recommended_action:
                   verified.status === "CONTRADICTED"
@@ -304,6 +320,7 @@ export async function executeNextStage(auditId: string) {
                 suggested_replacement: suggestedReplacement,
                 confidence: "high",
                 is_resolved: false,
+                claim_id: claim.id,
               });
             }
           }
@@ -321,19 +338,20 @@ export async function executeNextStage(auditId: string) {
         const voiceFindings = checkBrandVoiceDeterministic(contentBody);
 
         if (voiceFindings.length > 0) {
-          const rows = voiceFindings.map((f) => ({
+          const rows = voiceFindings.map((f, idx) => ({
+            finding_code: `FND-VOI-${idx + 1}`,
             audit_id: auditId,
             organisation_id: orgId,
-            category: f.category,
+            category: "voice",
             severity: f.severity,
             excerpt: f.excerpt,
-            start_index: f.startIndex,
-            end_index: f.endIndex,
+            start_offset: f.startIndex,
+            end_offset: f.endIndex,
             explanation: f.explanation,
             guideline_reference: f.guidelineReference,
             recommended_action: f.recommendedAction,
             suggested_replacement: f.suggestedReplacement,
-            confidence: f.confidence,
+            confidence: (f.confidence as "high" | "medium" | "low") || "high",
             is_resolved: false,
           }));
 
@@ -360,19 +378,20 @@ export async function executeNextStage(auditId: string) {
         );
 
         if (termFindings.length > 0) {
-          const rows = termFindings.map((f) => ({
+          const rows = termFindings.map((f, idx) => ({
+            finding_code: `FND-TRM-${idx + 1}`,
             audit_id: auditId,
             organisation_id: orgId,
-            category: f.category,
+            category: "terminology",
             severity: f.severity,
             excerpt: f.excerpt,
-            start_index: f.startIndex,
-            end_index: f.endIndex,
+            start_offset: f.startIndex,
+            end_offset: f.endIndex,
             explanation: f.explanation,
             guideline_reference: f.guidelineReference,
             recommended_action: f.recommendedAction,
             suggested_replacement: f.suggestedReplacement,
-            confidence: f.confidence,
+            confidence: (f.confidence as "high" | "medium" | "low") || "high",
             is_resolved: false,
           }));
 
@@ -387,18 +406,19 @@ export async function executeNextStage(auditId: string) {
         const { findings: a11yFindings } = checkAccessibilityDeterministic(contentBody);
 
         if (a11yFindings.length > 0) {
-          const rows = a11yFindings.map((f) => ({
+          const rows = a11yFindings.map((f, idx) => ({
+            finding_code: `FND-A11Y-${idx + 1}`,
             audit_id: auditId,
             organisation_id: orgId,
-            category: f.category,
+            category: "accessibility",
             severity: f.severity,
             excerpt: f.excerpt,
-            start_index: f.startIndex,
-            end_index: f.endIndex,
+            start_offset: f.startIndex,
+            end_offset: f.endIndex,
             explanation: f.explanation,
             guideline_reference: f.guidelineReference,
             recommended_action: f.recommendedAction,
-            confidence: f.confidence,
+            confidence: (f.confidence as "high" | "medium" | "low") || "high",
             is_resolved: false,
           }));
 
@@ -417,11 +437,11 @@ export async function executeNextStage(auditId: string) {
 
         const findingRecords: AuditFindingRecord[] = (allFindings || []).map((f) => ({
           id: f.id,
-          category: f.category as AuditDimension,
+          category: (f.category === "claim_reliability" ? "claims" : f.category) as AuditDimension,
           severity: f.severity as AuditSeverity,
           excerpt: f.excerpt,
-          startIndex: f.start_index,
-          endIndex: f.end_index,
+          startIndex: f.start_offset ?? 0,
+          endIndex: f.end_offset ?? 0,
           explanation: f.explanation,
           guidelineReference: f.guideline_reference,
           evidenceSourceId: f.evidence_source_id,
@@ -485,8 +505,8 @@ export async function executeNextStage(auditId: string) {
       .from("audit_stages")
       .update({
         status: "COMPLETED",
-        completed_at: new Date().toISOString(),
-        findings_count: findingsCount,
+        finished_at: new Date().toISOString(),
+        detail: `Completed with ${findingsCount} findings`,
       })
       .eq("id", stageId);
 
@@ -494,7 +514,7 @@ export async function executeNextStage(auditId: string) {
       completed: stageNum === 7,
       stage: {
         number: stageNum,
-        name: nextStage.stage_name,
+        name: nextStage.stage_key || nextStage.stage_name,
         status: "COMPLETED",
         findingsCount,
       },
@@ -505,7 +525,8 @@ export async function executeNextStage(auditId: string) {
       .from("audit_stages")
       .update({
         status: "FAILED",
-        error_message: errorMsg,
+        error: errorMsg,
+        finished_at: new Date().toISOString(),
       })
       .eq("id", stageId);
 
