@@ -109,8 +109,8 @@ describe("Phase 2 Specification Gate — Scenarios A, B, C, D Verification", () 
   it("Scenario B: Flags aggressive 'destroy' tone and disallowed 'revolutionary' terminology", () => {
     const content = "Destroy your competition with our revolutionary platform.";
 
-    // 1. Voice check (detects aggressive 'destroy' [-15] and hype 'revolutionary' [-8])
-    const voiceFindings = checkBrandVoiceDeterministic(content);
+    // 1. Voice check (detects aggressive 'destroy' [-15], skips 'revolutionary' because it matches terminology rule)
+    const voiceFindings = checkBrandVoiceDeterministic(content, seededTermRules);
     const destroyFinding = voiceFindings.find((f) => f.excerpt.toLowerCase() === "destroy");
     expect(destroyFinding).toBeDefined();
     expect(destroyFinding?.severity).toBe("HIGH");
@@ -121,10 +121,10 @@ describe("Phase 2 Specification Gate — Scenarios A, B, C, D Verification", () 
     expect(revFinding).toBeDefined();
     expect(revFinding?.suggestedReplacement).toBe("purpose-built");
 
-    // 3. Combined findings scoring
+    // 3. Combined findings scoring (deduplicated per distinct excerpt)
     const allFindings = [...voiceFindings, ...termFindings];
     const scores = calculateAuditScores(allFindings);
-    expect(scores.voice).toBe(77); // 100 - 15 (destroy) - 8 (revolutionary)
+    expect(scores.voice).toBe(85); // 100 - 15 (destroy)
     expect(scores.terminology).toBe(92); // 100 - 8 (revolutionary)
   });
 

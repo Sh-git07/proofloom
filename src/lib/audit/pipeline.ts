@@ -335,7 +335,15 @@ export async function executeNextStage(auditId: string) {
 
       case 4: {
         // [04] BRAND VOICE ANALYSIS
-        const voiceFindings = checkBrandVoiceDeterministic(contentBody);
+        const { data: termRules } = await supabase
+          .from("terminology_rules")
+          .select("*")
+          .eq("organisation_id", orgId);
+
+        const voiceFindings = checkBrandVoiceDeterministic(
+          contentBody,
+          (termRules as unknown as DatabaseTermRule[]) || []
+        );
 
         if (voiceFindings.length > 0) {
           const rows = voiceFindings.map((f, idx) => ({

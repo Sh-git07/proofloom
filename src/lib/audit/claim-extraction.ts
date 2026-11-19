@@ -88,8 +88,8 @@ export function extractClaimsDeterministic(content: string): RawExtractedClaim[]
     addClaim(match[0], match.index, match.index + match[0].length, "numerical", val, match[2].toLowerCase(), "time_savings");
   }
 
-  // 5. Ranking & Superlative claims ("#1", "world's fastest", "unbeatable", "industry-leading")
-  const rankRegex = /(?:#\d+|number\s+\d+|world's\s+fastest|unbeatable|industry-leading|best\s+in\s+class|guaranteed)/gi;
+  // 5. Ranking & Superlative claims ("#1", "number one", "number 1", "world's fastest", "unbeatable", "industry-leading")
+  const rankRegex = /(?:#\d+|\bnumber\s+(?:\d+|one)\b|world's\s+fastest|unbeatable|industry-leading|best\s+in\s+class|guaranteed)/gi;
   while ((match = rankRegex.exec(content)) !== null) {
     addClaim(match[0], match.index, match.index + match[0].length, "comparative");
   }

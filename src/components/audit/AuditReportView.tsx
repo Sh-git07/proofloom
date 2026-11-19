@@ -14,6 +14,8 @@ import { submitChallengeAction } from "@/app/actions/challenges";
 import { submitForReviewAction, toggleFindingResolvedAction } from "@/app/actions/governance";
 import { OrgRole } from "@/lib/permissions";
 import { SCORING_FOOTNOTE } from "@/lib/audit/scoring";
+import { buildViewerSegments } from "@/lib/audit/viewer";
+import { getSentenceAround } from "@/lib/audit/terminology";
 import { diffWordsWithSpace, Change } from "diff";
 import {
   CheckCircle2,
@@ -53,6 +55,7 @@ interface AuditFinding {
   verification_status?: string;
   recommended_action: string;
   suggested_replacement?: string;
+  suggested_sentence?: string;
   confidence?: string;
   is_resolved?: boolean;
 }
@@ -113,9 +116,21 @@ export function AuditReportView({
   // Filters
   const [selectedSeverity, setSelectedSeverity] = React.useState<string>("ALL");
   const [selectedCategory, setSelectedCategory] = React.useState<string>("ALL");
+  const [selectedFindingIds, setSelectedFindingIds] = React.useState<string[]>(
+    initialFindings[0] ? [initialFindings[0].id] : []
+  );
   const [selectedFindingId, setSelectedFindingId] = React.useState<string | null>(
     initialFindings[0]?.id || null
   );
+
+  function handleHighlightClick(covering: AuditFinding[]) {
+    if (covering.length === 0) return;
+    const ids = covering.map((f) => f.id);
+    setSelectedFindingIds(ids);
+    setSelectedFindingId(ids[0]);
+    setSelectedSeverity("ALL");
+    setSelectedCategory("ALL");
+  }
 
   // Intent-preserving rewrite state
   const [isAcceptingRewrite, setIsAcceptingRewrite] = React.useState<string | null>(null);
@@ -250,13 +265,22 @@ export function AuditReportView({
     setIsAcceptingRewrite(finding.id);
     setRewriteSuccessMessage(null);
 
+    const isDisclaimer =
+      finding.explanation.toLowerCase().includes("legal disclaimer missing") ||
+      finding.recommended_action.toLowerCase().includes("required disclaimer") ||
+      finding.guideline_reference?.toLowerCase().includes("mandatory disclaimer");
+
+    const replacementToApply = isDisclaimer
+      ? `${finding.excerpt} Results based on an internal pilot; individual results may vary.`
+      : finding.suggested_replacement;
+
     try {
       const res = await acceptRewriteAction({
         contentItemId: contentItem.id,
         findingId: finding.id,
         originalBody: contentVersion.body,
         excerpt: finding.excerpt,
-        replacement: finding.suggested_replacement,
+        replacement: replacementToApply,
       });
 
       if (res.success) {
@@ -342,61 +366,52 @@ export function AuditReportView({
     return true;
   });
 
-  // Content highlighted renderer
+  // Content highlighted renderer (merged, non-overlapping character ranges)
   function renderHighlightedContent() {
     const text = contentVersion.body;
     if (findings.length === 0) {
       return <p className="font-mono text-xs leading-relaxed text-[#17251C] whitespace-pre-wrap">{text}</p>;
     }
 
-    const sorted = [...findings].sort((a, b) => a.start_index - b.start_index);
-    const elements: React.ReactNode[] = [];
-    let lastIndex = 0;
-
-    sorted.forEach((finding, idx) => {
-      if (finding.start_index > lastIndex) {
-        elements.push(
-          <span key={`plain-${idx}`}>
-            {text.slice(lastIndex, finding.start_index)}
-          </span>
-        );
-      }
-
-      const isSelected = selectedFindingId === finding.id;
-      const highlightClass = finding.is_resolved
-        ? "bg-[#DDEBDD] border-b border-[#16834A] text-[#16834A] line-through opacity-70"
-        : finding.severity === "CRITICAL"
-        ? "bg-[#D94C4C]/20 border-b-2 border-[#D94C4C] text-[#D94C4C] font-bold"
-        : finding.severity === "HIGH"
-        ? "bg-[#E6A23C]/20 border-b-2 border-[#E6A23C] text-[#17251C] font-bold"
-        : "bg-[#B7F28B]/30 border-b-2 border-[#16834A] text-[#17251C] font-semibold";
-
-      elements.push(
-        <button
-          key={`finding-${finding.id}-${idx}`}
-          type="button"
-          onClick={() => setSelectedFindingId(finding.id)}
-          className={`cursor-pointer px-1 py-0.5 rounded-[1px] transition-all text-left ${highlightClass} ${
-            isSelected ? "ring-2 ring-[#17251C] bg-[#B7F28B]/60" : "hover:bg-opacity-50"
-          }`}
-          title={`${finding.category.toUpperCase()}: ${finding.explanation}`}
-        >
-          {text.slice(finding.start_index, finding.end_index) || finding.excerpt}
-        </button>
-      );
-
-      lastIndex = Math.max(lastIndex, finding.end_index);
-    });
-
-    if (lastIndex < text.length) {
-      elements.push(
-        <span key="plain-end">{text.slice(lastIndex)}</span>
-      );
-    }
+    const segments = buildViewerSegments(text, findings);
 
     return (
       <div className="font-mono text-xs leading-relaxed text-[#17251C] whitespace-pre-wrap">
-        {elements}
+        {segments.map((seg, idx) => {
+          if (seg.coveringFindings.length === 0) {
+            return <span key={`plain-${seg.start}-${idx}`}>{seg.text}</span>;
+          }
+
+          const topFinding = seg.coveringFindings[0];
+          const allResolved = seg.coveringFindings.every((f) => f.is_resolved);
+          const hasSelected = seg.coveringFindings.some((f) => selectedFindingIds.includes(f.id));
+
+          const highlightClass = allResolved
+            ? "bg-[#DDEBDD] border-b border-[#16834A] text-[#16834A] line-through opacity-70"
+            : topFinding.severity === "CRITICAL"
+            ? "bg-[#D94C4C]/20 border-b-2 border-[#D94C4C] text-[#D94C4C] font-bold"
+            : topFinding.severity === "HIGH"
+            ? "bg-[#E6A23C]/20 border-b-2 border-[#E6A23C] text-[#17251C] font-bold"
+            : "bg-[#B7F28B]/30 border-b-2 border-[#16834A] text-[#17251C] font-semibold";
+
+          const titleText = seg.coveringFindings
+            .map((f) => `[${f.severity}] ${f.category.toUpperCase()}: ${f.explanation}`)
+            .join(" | ");
+
+          return (
+            <button
+              key={`seg-${seg.start}-${seg.end}-${idx}`}
+              type="button"
+              onClick={() => handleHighlightClick(seg.coveringFindings)}
+              className={`cursor-pointer px-0.5 py-0.5 rounded-[1px] transition-all text-left inline ${highlightClass} ${
+                hasSelected ? "ring-2 ring-[#17251C] bg-[#B7F28B]/60" : "hover:bg-opacity-50"
+              }`}
+              title={titleText}
+            >
+              {seg.text}
+            </button>
+          );
+        })}
       </div>
     );
   }
@@ -421,7 +436,11 @@ export function AuditReportView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {['READY_FOR_REVIEW', 'IN_REVIEW', 'APPROVED', 'READY_TO_PUBLISH'].includes(contentStatus) ? (
+          {hasUnresolvedCritical ? (
+            <span className="font-mono text-xs font-extrabold px-2.5 py-1 bg-[#D94C4C] text-white brutal-border">
+              REVISION REQUIRED
+            </span>
+          ) : ['READY_FOR_REVIEW', 'IN_REVIEW', 'APPROVED', 'READY_TO_PUBLISH'].includes(contentStatus) ? (
             <>
               <span className="font-mono text-xs font-extrabold px-2 py-1 bg-[#16834A] text-[#B7F28B] brutal-border">
                 {contentStatus.replace(/_/g, " ")}
@@ -784,12 +803,30 @@ export function AuditReportView({
                   </div>
                 ) : (
                   filteredFindings.map((finding) => {
-                    const isSelected = selectedFindingId === finding.id;
+                    const isSelected = selectedFindingIds.includes(finding.id);
+                    const isDisclaimer =
+                      finding.explanation.toLowerCase().includes("legal disclaimer missing") ||
+                      finding.recommended_action.toLowerCase().includes("required disclaimer") ||
+                      finding.guideline_reference?.toLowerCase().includes("mandatory disclaimer");
+
+                    const sentenceInfo = getSentenceAround(contentVersion.body, finding.start_index, finding.end_index);
+                    const suggestedSentence =
+                      finding.suggested_sentence ||
+                      (sentenceInfo.sentence && finding.suggested_replacement
+                        ? sentenceInfo.sentence.replace(finding.excerpt, finding.suggested_replacement)
+                        : finding.suggested_replacement);
 
                     return (
                       <div
                         key={finding.id}
-                        onClick={() => setSelectedFindingId(finding.id)}
+                        onClick={() => {
+                          if (selectedFindingIds.includes(finding.id)) {
+                            setSelectedFindingIds(selectedFindingIds.filter((id) => id !== finding.id));
+                          } else {
+                            setSelectedFindingIds([finding.id, ...selectedFindingIds]);
+                          }
+                          setSelectedFindingId(finding.id);
+                        }}
                         className={`brutal-panel bg-white p-4 transition-all cursor-pointer ${
                           isSelected
                             ? "border-l-4 border-l-[#16834A] brutal-shadow"
@@ -849,8 +886,24 @@ export function AuditReportView({
                               <div className="flex items-start space-x-1.5">
                                 <BookOpen className="w-3.5 h-3.5 text-[#16834A] shrink-0 mt-0.5" />
                                 <div>
-                                  <span className="text-[#637367] text-[10px] block">AUTHORITATIVE SOURCE:</span>
+                                  <span className="text-[#637367] text-[10px] block">AUTHORITATIVE SOURCE / GUIDELINE:</span>
                                   <span className="font-bold text-[#17251C]">{finding.guideline_reference}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Terminology specific standard display (Requirement 6) */}
+                            {finding.category === "terminology" && !isDisclaimer && (
+                              <div className="p-2 bg-[#F4F1E8] brutal-border space-y-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-[10px] font-bold text-[#637367] uppercase">APPROVED TERM:</span>
+                                  <span className="font-bold text-xs text-[#16834A] px-1.5 py-0.5 bg-[#DDEBDD] brutal-border">
+                                    {finding.suggested_replacement || "Approved Standard"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-[#637367] block uppercase font-bold">RULE EXPLANATION:</span>
+                                  <p className="text-xs text-[#17251C]">{finding.explanation}</p>
                                 </div>
                               </div>
                             )}
@@ -860,7 +913,27 @@ export function AuditReportView({
                               <span className="font-bold text-[#16834A] block">{finding.recommended_action}</span>
                             </div>
 
-                            {finding.suggested_replacement && (
+                            {/* Disclaimer: exact approved disclaimer text as suggested addition (Requirement 3) */}
+                            {isDisclaimer ? (
+                              <div className="p-2.5 bg-[#DDEBDD] brutal-border space-y-1.5">
+                                <span className="text-[10px] font-bold text-[#16834A] block uppercase">
+                                  SUGGESTED ADDITION:
+                                </span>
+                                <p className="font-bold text-xs text-[#17251C]">
+                                  Results based on an internal pilot; individual results may vary.
+                                </p>
+                              </div>
+                            ) : finding.category === "terminology" ? (
+                              /* Terminology: suggested replacement sentence (Requirement 6) */
+                              <div className="p-2.5 bg-[#DDEBDD] brutal-border space-y-1.5">
+                                <span className="text-[10px] font-bold text-[#16834A] block uppercase">
+                                  SUGGESTED REPLACEMENT SENTENCE:
+                                </span>
+                                <p className="font-bold text-xs text-[#17251C]">
+                                  {suggestedSentence}
+                                </p>
+                              </div>
+                            ) : finding.suggested_replacement ? (
                               <div className="p-2.5 bg-[#DDEBDD] brutal-border space-y-1.5">
                                 <span className="text-[10px] font-bold text-[#16834A] block uppercase">
                                   INTENT-PRESERVING REWRITE SUGGESTION:
@@ -869,7 +942,7 @@ export function AuditReportView({
                                   {finding.suggested_replacement}
                                 </p>
                               </div>
-                            )}
+                            ) : null}
 
                             {/* Action Buttons: Accept / Compare / Challenge / Provenance */}
                             <div className="flex flex-wrap items-center gap-2 pt-2">

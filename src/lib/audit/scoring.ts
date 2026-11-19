@@ -38,8 +38,39 @@ export function calculateAuditScores(
     visual: 100,
   };
 
+  const SEVERITY_RANK: Record<AuditSeverity, number> = {
+    CRITICAL: 5,
+    HIGH: 4,
+    MEDIUM: 3,
+    LOW: 2,
+    INFO: 1,
+  };
+
+  // Group unresolved findings by distinct excerpt so each excerpt is counted only once
+  // at its highest severity (Requirement 1: a single scored finding per distinct excerpt)
+  const scoredFindingsByExcerpt = new Map<string, AuditFindingRecord>();
+
   for (const finding of findings) {
     if (finding.isResolved) continue; // Resolved findings do not deduct points
+    const key = (finding.excerpt || "").trim().toLowerCase();
+    if (!key) {
+      scoredFindingsByExcerpt.set(`__id_${finding.id}`, finding);
+      continue;
+    }
+
+    const existing = scoredFindingsByExcerpt.get(key);
+    if (!existing) {
+      scoredFindingsByExcerpt.set(key, finding);
+    } else {
+      const existingRank = SEVERITY_RANK[existing.severity] ?? 0;
+      const currentRank = SEVERITY_RANK[finding.severity] ?? 0;
+      if (currentRank > existingRank) {
+        scoredFindingsByExcerpt.set(key, finding);
+      }
+    }
+  }
+
+  for (const finding of scoredFindingsByExcerpt.values()) {
     const deduction = DEDUCTION_MAP[finding.severity] ?? 0;
     dimensionScores[finding.category] = Math.max(0, dimensionScores[finding.category] - deduction);
   }

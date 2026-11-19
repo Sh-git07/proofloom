@@ -28,6 +28,7 @@ export interface AuditFindingRecord {
   verificationStatus?: VerificationStatus;
   recommendedAction: string;
   suggestedReplacement?: string;
+  suggestedSentence?: string;
   confidence: "high" | "medium" | "low";
   isResolved: boolean;
 }

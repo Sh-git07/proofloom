@@ -37,14 +37,21 @@ export const VOICE_RULES: VoiceRule[] = [
 ];
 
 /**
- * Deterministic Brand Voice Inspector
+ * Deterministic Brand Voice Inspector.
+ * If termRules are supplied, skips voice findings for spans that match a terminology rule
+ * or comparative superlative claims ("number one"), ensuring no duplicate findings for the same span.
  */
 export function checkBrandVoiceDeterministic(
   content: string,
+  termRules?: Array<{ disallowed_term: string }>,
   startFindingIndex: number = 1
 ): AuditFindingRecord[] {
   const findings: AuditFindingRecord[] = [];
   let findingCounter = startFindingIndex;
+
+  const normalizedDisallowed = new Set(
+    (termRules || []).map((r) => r.disallowed_term.trim().toLowerCase())
+  );
 
   for (const rule of VOICE_RULES) {
     let match: RegExpExecArray | null;
@@ -54,6 +61,28 @@ export function checkBrandVoiceDeterministic(
       const excerpt = match[0];
       const startIndex = match.index;
       const endIndex = startIndex + excerpt.length;
+      const lowerExcerpt = excerpt.trim().toLowerCase();
+
+      // Skip "number one" because it is extracted as a comparative claim (Requirement 4)
+      if (lowerExcerpt === "number one" || lowerExcerpt === "#1") {
+        continue;
+      }
+
+      // If span or word matches a terminology rule, skip the voice finding (Requirement 1)
+      if (normalizedDisallowed.has(lowerExcerpt)) {
+        continue;
+      }
+
+      // Also check if any terminology rule phrase overlaps or covers this word
+      const matchesAnyRule = Array.from(normalizedDisallowed).some(
+        (disallowed) =>
+          disallowed === lowerExcerpt ||
+          (disallowed.length > 3 && lowerExcerpt.includes(disallowed)) ||
+          (lowerExcerpt.length > 3 && disallowed.includes(lowerExcerpt))
+      );
+      if (matchesAnyRule) {
+        continue;
+      }
 
       findings.push({
         id: `FIND-${String(findingCounter++).padStart(3, "0")}`,
