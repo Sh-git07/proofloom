@@ -72,7 +72,6 @@ export function Sidebar({ currentRole, isDemoMode }: SidebarProps) {
             <Link
               key={item.href}
               href={item.href}
-              prefetch={false}
               className={`flex items-center space-x-2.5 px-3 py-2 text-xs font-mono font-bold uppercase transition-all rounded-[2px] ${
                 isActive
                   ? "bg-[#16834A] text-white brutal-border brutal-shadow-sm translate-x-[-1px] translate-y-[-1px]"

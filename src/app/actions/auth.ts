@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { clearUserContextCache } from "@/lib/auth-helpers";
 import { redirect } from "next/navigation";
 
 export async function signInDemoUser(role: "admin" | "brand_manager" | "creator" | "reviewer") {
@@ -55,6 +56,7 @@ export async function signInWithEmail(formData: FormData) {
 }
 
 export async function signOutUser() {
+  clearUserContextCache();
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/");

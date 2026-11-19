@@ -327,11 +327,20 @@ export function ReviewQueueWorkbench({
 
                     <div className="flex items-center justify-between font-mono text-[10px] text-[#637367] pt-1 border-t border-[#253C2B]/10">
                       <span>By {item.author?.full_name || "Creator"}</span>
-                      {item.latest_audit && (
-                        <span className="font-bold text-[#17251C]">
-                          Score: {item.latest_audit.overall_score || "--"}/100
-                        </span>
-                      )}
+                      <div className="flex items-center space-x-2">
+                        {item.latest_audit && (
+                          <span className="font-bold text-[#17251C]">
+                            Score: {item.latest_audit.overall_score || "--"}/100
+                          </span>
+                        )}
+                        <Link
+                          href={`/reviews/${item.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-bold text-[#16834A] hover:underline"
+                        >
+                          OPEN &rarr;
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 );
@@ -357,15 +366,24 @@ export function ReviewQueueWorkbench({
                     </h2>
                   </div>
 
-                  {selectedItem.latest_audit && (
+                  <div className="flex items-center space-x-2">
                     <Link
-                      href={`/audits/${selectedItem.latest_audit.id}`}
-                      className="brutal-btn brutal-btn-secondary px-3 py-1.5 text-xs font-mono font-bold flex items-center space-x-1"
+                      href={`/reviews/${selectedItem.id}`}
+                      className="brutal-btn brutal-btn-lime px-3 py-1.5 text-xs font-mono font-bold flex items-center space-x-1"
                     >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>FULL AUDIT REPORT &rarr;</span>
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      <span>OPEN REVIEW PAGE &rarr;</span>
                     </Link>
-                  )}
+                    {selectedItem.latest_audit && (
+                      <Link
+                        href={`/audits/${selectedItem.latest_audit.id}`}
+                        className="brutal-btn brutal-btn-secondary px-3 py-1.5 text-xs font-mono font-bold flex items-center space-x-1"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>AUDIT &rarr;</span>
+                      </Link>
+                    )}
+                  </div>
                 </div>
 
                 {/* Score & Risk Alert */}

@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { OrgRole } from "./permissions";
 import { NotificationItem } from "@/components/shell/NotificationsPopover";
@@ -22,13 +23,53 @@ export interface CurrentUserContext {
   notifications: NotificationItem[];
 }
 
+interface CacheEntry {
+  context: CurrentUserContext | null;
+  expiresAt: number;
+}
+
+// In-memory process cache to eliminate duplicate remote auth round-trips during fast page navigation
+const userContextMemCache = new Map<string, CacheEntry>();
+
+export function clearUserContextCache() {
+  userContextMemCache.clear();
+}
+
 export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext | null> => {
+  // Compute cache key from cookies
+  let cacheKey = "";
+  try {
+    const cookieStore = await cookies();
+    const tokenCookie = cookieStore
+      .getAll()
+      .filter((c) => c.name.startsWith("sb-") && c.name.includes("-auth-token"))
+      .map((c) => `${c.name}=${c.value}`)
+      .join(";");
+    if (tokenCookie) {
+      cacheKey = tokenCookie;
+    }
+  } catch {
+    // If called outside request context
+  }
+
+  const now = Date.now();
+  if (cacheKey && userContextMemCache.has(cacheKey)) {
+    const entry = userContextMemCache.get(cacheKey)!;
+    if (now < entry.expiresAt) {
+      return entry.context;
+    }
+    userContextMemCache.delete(cacheKey);
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
+    if (cacheKey) {
+      userContextMemCache.set(cacheKey, { context: null, expiresAt: now + 5000 });
+    }
     return null;
   }
 
@@ -77,7 +118,7 @@ export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext 
     created_at: n.created_at,
   }));
 
-  return {
+  const context: CurrentUserContext = {
     user: {
       id: user.id,
       email: user.email || "",
@@ -95,4 +136,11 @@ export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext 
     aiMode: "live_ai",
     notifications,
   };
+
+  if (cacheKey) {
+    // 30 seconds TTL: fast navigation transitions reuse context without blocking on remote auth
+    userContextMemCache.set(cacheKey, { context, expiresAt: now + 30000 });
+  }
+
+  return context;
 });

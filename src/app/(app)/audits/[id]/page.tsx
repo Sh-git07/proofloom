@@ -28,7 +28,16 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
       checked_dimensions,
       created_at,
       content_versions(body, version_no),
-      content_items(id, title, content_type, platform, department, status)
+      content_items(
+        id,
+        title,
+        content_type,
+        platform,
+        department,
+        status,
+        creator_id,
+        profiles:creator_id(full_name, email)
+      )
     `)
     .eq("id", id)
     .eq("organisation_id", context.organisation.id)
@@ -57,6 +66,11 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
     platform: string;
     department: string;
     status: string;
+    creator_id?: string;
+    profiles?: {
+      full_name?: string;
+      email?: string;
+    };
   };
 
   const version = audit.content_versions as unknown as {
@@ -64,8 +78,12 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
     version_no: number;
   };
 
+  const creatorName = item?.profiles?.full_name || item?.profiles?.email || "Platform Creator";
+
   return (
     <AuditReportView
+      userRole={context.role}
+      creatorName={creatorName}
       audit={{
         id: audit.id,
         overall_score: audit.overall_score,

@@ -190,7 +190,6 @@ export function AppShell({
                   <Link
                     key={item.href}
                     href={item.href}
-                    prefetch={false}
                     onClick={() => setMobileDrawerOpen(false)}
                     className={`flex items-center space-x-2.5 px-3 py-2 text-xs font-mono font-bold uppercase transition-all rounded-[2px] ${
                       isActive

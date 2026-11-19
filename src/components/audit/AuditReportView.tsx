@@ -11,6 +11,8 @@ import { SectionLabel } from "@/components/ui/section-label";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { acceptRewriteAction, rejectFindingAction } from "@/app/actions/rewrites";
 import { submitChallengeAction } from "@/app/actions/challenges";
+import { submitForReviewAction, toggleFindingResolvedAction } from "@/app/actions/governance";
+import { OrgRole } from "@/lib/permissions";
 import { SCORING_FOOTNOTE } from "@/lib/audit/scoring";
 import { diffWordsWithSpace, Change } from "diff";
 import {
@@ -23,6 +25,7 @@ import {
   GitBranch,
   Check,
   Scale,
+  Send,
 } from "lucide-react";
 
 interface AuditStage {
@@ -55,6 +58,8 @@ interface AuditFinding {
 }
 
 interface AuditReportViewProps {
+  userRole?: OrgRole;
+  creatorName?: string;
   audit: {
     id: string;
     overall_score: number | null;
@@ -87,6 +92,8 @@ interface AuditReportViewProps {
 }
 
 export function AuditReportView({
+  userRole = "creator",
+  creatorName,
   audit,
   contentItem,
   contentVersion,
@@ -123,6 +130,55 @@ export function AuditReportView({
 
   // Compare diff modal state
   const [compareFinding, setCompareFinding] = React.useState<AuditFinding | null>(null);
+
+  // Review submission state
+  const [contentStatus, setContentStatus] = React.useState<string>(contentItem.status);
+  const [isSubmittingReview, setIsSubmittingReview] = React.useState(false);
+  const [submitFeedback, setSubmitFeedback] = React.useState<string | null>(null);
+  const [submitError, setSubmitError] = React.useState<string | null>(null);
+
+  const hasUnresolvedCritical = findings.some(
+    (f) => f.severity === "CRITICAL" && !f.is_resolved
+  );
+
+  async function handleSubmitForReview() {
+    setIsSubmittingReview(true);
+    setSubmitError(null);
+    setSubmitFeedback(null);
+
+    const res = await submitForReviewAction(contentItem.id);
+    setIsSubmittingReview(false);
+
+    if (res.success) {
+      const nextStatus = (res as { new_status?: string }).new_status || "READY_FOR_REVIEW";
+      setContentStatus(nextStatus);
+      setSubmitFeedback(
+        `Successfully submitted content for formal review (Status: ${nextStatus.replace(/_/g, " ")}).`
+      );
+    } else {
+      setSubmitError(res.error || "Failed to submit content for review.");
+    }
+  }
+
+  async function handleToggleFindingResolved(finding: AuditFinding) {
+    const nextState = !finding.is_resolved;
+    setFindings((prev) =>
+      prev.map((f) => (f.id === finding.id ? { ...f, is_resolved: nextState } : f))
+    );
+
+    const res = await toggleFindingResolvedAction({
+      findingId: finding.id,
+      isResolved: nextState,
+      contentItemId: contentItem.id,
+    });
+
+    if (!res.success) {
+      setFindings((prev) =>
+        prev.map((f) => (f.id === finding.id ? { ...f, is_resolved: !nextState } : f))
+      );
+      alert(res.error || "Failed to update finding status");
+    }
+  }
 
   // Auto-runner loop: Executes next stage until all are COMPLETED
   React.useEffect(() => {
@@ -360,11 +416,48 @@ export function AuditReportView({
             {contentItem.title}
           </h1>
           <p className="text-xs text-[#637367] mt-0.5 font-mono">
-            Authored by {contentItem.department} &bull; Original Submission Version {contentVersion.version_no}
+            Authored by <span className="font-bold text-[#17251C]">{creatorName || contentItem.department}</span> &bull; Original Submission Version {contentVersion.version_no}
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {['READY_FOR_REVIEW', 'IN_REVIEW', 'APPROVED', 'READY_TO_PUBLISH'].includes(contentStatus) ? (
+            <>
+              <span className="font-mono text-xs font-extrabold px-2 py-1 bg-[#16834A] text-[#B7F28B] brutal-border">
+                {contentStatus.replace(/_/g, " ")}
+              </span>
+              <Link href={`/reviews/${contentItem.id}`}>
+                <Button variant="lime" size="md" className="flex items-center space-x-1.5">
+                  <span>OPEN REVIEW WORKBENCH</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Button>
+              </Link>
+            </>
+          ) : (
+            audit.status === "COMPLETED" &&
+            userRole !== "reviewer" && (
+              <Button
+                variant="lime"
+                size="md"
+                disabled={isSubmittingReview}
+                onClick={handleSubmitForReview}
+                className="flex items-center space-x-1.5 font-mono font-bold"
+              >
+                {isSubmittingReview ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>SUBMITTING...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>SUBMIT FOR REVIEW</span>
+                  </>
+                )}
+              </Button>
+            )
+          )}
+
           <Link href="/studio">
             <Button variant="secondary" size="md">
               NEW SUBMISSION
@@ -377,6 +470,25 @@ export function AuditReportView({
           </Link>
         </div>
       </div>
+
+      {submitFeedback && (
+        <div className="p-3.5 bg-[#DDEBDD] border-2 border-[#16834A] text-[#16834A] text-xs font-mono font-bold flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{submitFeedback}</span>
+          </div>
+          <Link href={`/reviews/${contentItem.id}`} className="underline font-bold text-[#17251C]">
+            Go to Review Workbench &rarr;
+          </Link>
+        </div>
+      )}
+
+      {submitError && (
+        <div className="p-3.5 bg-[#F4F1E8] border-2 border-[#D94C4C] text-[#D94C4C] text-xs font-mono font-bold flex items-center space-x-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{submitError}</span>
+        </div>
+      )}
 
       {rewriteSuccessMessage && (
         <div className="p-3.5 bg-[#DDEBDD] border-2 border-[#16834A] text-[#16834A] text-xs font-mono font-bold flex items-center justify-between">
@@ -497,12 +609,12 @@ export function AuditReportView({
                   <span className="text-[#637367]">AUDIT DECISION:</span>
                   <span
                     className={`font-extrabold uppercase px-1.5 py-0.5 brutal-border ${
-                      audit.status === "COMPLETED" && (audit.overall_score || 0) >= 80
-                        ? "bg-[#B7F28B] text-[#17251C]"
-                        : "bg-[#D94C4C] text-white"
+                      hasUnresolvedCritical
+                        ? "bg-[#D94C4C] text-white"
+                        : "bg-[#B7F28B] text-[#17251C]"
                     }`}
                   >
-                    {(audit.overall_score || 0) >= 80 ? "READY FOR REVIEW" : "REVISION REQUIRED"}
+                    {hasUnresolvedCritical ? "REVISION REQUIRED" : "READY FOR REVIEW"}
                   </span>
                 </div>
 
@@ -819,6 +931,30 @@ export function AuditReportView({
                                 <ExternalLink className="w-3 h-3 text-[#16834A]" />
                                 <span>PROVENANCE</span>
                               </Link>
+
+                              {(userRole === "reviewer" ||
+                                userRole === "brand_manager" ||
+                                userRole === "admin") && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleFindingResolved(finding);
+                                  }}
+                                  className={`brutal-btn px-2.5 py-1.5 text-[11px] flex items-center space-x-1 ${
+                                    finding.is_resolved
+                                      ? "brutal-btn-secondary text-[#637367]"
+                                      : "brutal-btn-lime"
+                                  }`}
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>
+                                    {finding.is_resolved
+                                      ? "MARK UNRESOLVED"
+                                      : "MARK AS RESOLVED"}
+                                  </span>
+                                </button>
+                              )}
 
                               {!finding.is_resolved && (
                                 <button
