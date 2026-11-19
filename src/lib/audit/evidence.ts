@@ -37,6 +37,17 @@ export function verifyClaimAgainstEvidence(
   const candidates: Array<{ fact: DatabaseFact; score: number }> = [];
 
   for (const fact of facts) {
+    // Only approved and expired/superseded facts participate in evidence evaluation
+    // Pending and rejected facts must NEVER be used as authoritative evidence
+    if (
+      fact.approval_status === "REJECTED" ||
+      fact.approval_status === "PENDING" ||
+      (fact.approval_status as string) === "PENDING_APPROVAL" ||
+      (fact.approval_status as string) === "DRAFT"
+    ) {
+      continue;
+    }
+
     let score = 0;
     const factNameLower = fact.name.toLowerCase();
     const factValLower = (fact.value || "").toLowerCase();

@@ -12,8 +12,15 @@ export default async function KnowledgePage() {
 
   const supabase = await createClient();
 
-  // Fetch facts, terms, and guidelines in parallel
-  const [{ data: facts }, { data: terms }, { data: guidelines }] = await Promise.all([
+  // Fetch all 6 Knowledge Vault collections in parallel
+  const [
+    { data: facts },
+    { data: terms },
+    { data: guidelines },
+    { data: assets },
+    { data: examples },
+    { data: disclaimers },
+  ] = await Promise.all([
     supabase
       .from("approved_facts")
       .select("*")
@@ -26,6 +33,21 @@ export default async function KnowledgePage() {
       .order("created_at", { ascending: false }),
     supabase
       .from("brand_guidelines")
+      .select("*")
+      .eq("organisation_id", context.organisation.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("approved_assets")
+      .select("*")
+      .eq("organisation_id", context.organisation.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("approved_examples")
+      .select("*")
+      .eq("organisation_id", context.organisation.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("brand_disclaimers")
       .select("*")
       .eq("organisation_id", context.organisation.id)
       .order("created_at", { ascending: false }),
@@ -47,6 +69,9 @@ export default async function KnowledgePage() {
         facts={facts || []}
         terms={terms || []}
         guidelines={guidelines || []}
+        assets={assets || []}
+        examples={examples || []}
+        disclaimers={disclaimers || []}
         userRole={context.role}
       />
     </div>

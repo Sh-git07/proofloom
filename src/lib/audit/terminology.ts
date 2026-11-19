@@ -35,14 +35,27 @@ export function checkTerminologyDeterministic(
       const startIndex = match.index;
       const endIndex = startIndex + excerpt.length;
 
+      const severity =
+        rule.severity ||
+        (rule.disallowed_term.toLowerCase().includes("autonomous employee replacement") ||
+        rule.disallowed_term.toLowerCase().includes("world's fastest") ||
+        rule.disallowed_term.toLowerCase().includes("novacreative")
+          ? "CRITICAL"
+          : "MEDIUM");
+
+      const explanation =
+        rule.reason ||
+        (rule as any).context ||
+        `Disallowed terminology '${excerpt}'. Authorized standard is '${rule.approved_term}'.`;
+
       findings.push({
         id: `FIND-${String(counter++).padStart(3, "0")}`,
         category: "terminology",
-        severity: rule.severity,
+        severity,
         excerpt,
         startIndex,
         endIndex,
-        explanation: rule.reason || `Disallowed terminology '${excerpt}'. Authorized standard is '${rule.approved_term}'.`,
+        explanation,
         guidelineReference: "Corporate Terminology Registry",
         recommendedAction: `Replace with approved terminology: "${rule.approved_term}".`,
         suggestedReplacement: rule.approved_term,

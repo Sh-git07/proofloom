@@ -383,7 +383,7 @@ export async function executeNextStage(auditId: string) {
             audit_id: auditId,
             organisation_id: orgId,
             category: "terminology",
-            severity: f.severity,
+            severity: f.severity || "MEDIUM",
             excerpt: f.excerpt,
             start_offset: f.startIndex,
             end_offset: f.endIndex,
