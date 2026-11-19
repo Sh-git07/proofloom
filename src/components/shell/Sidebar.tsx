@@ -14,7 +14,9 @@ import {
   Users,
   Settings,
   ShieldAlert,
+  LogOut,
 } from "lucide-react";
+import { signOutUser } from "@/app/actions/auth";
 import { OrgRole } from "@/lib/permissions";
 
 interface SidebarProps {
@@ -98,12 +100,23 @@ export function Sidebar({ currentRole, isDemoMode }: SidebarProps) {
         {isDemoMode && (
           <Link
             href="/demo"
-            className="flex items-center justify-center space-x-1 w-full py-1.5 px-2 bg-white brutal-border text-[11px] font-mono font-bold text-[#17251C] hover:bg-[#DDEBDD] brutal-shadow-sm"
+            className="flex items-center justify-center space-x-1 w-full py-1.5 px-2 bg-white brutal-border text-[11px] font-mono font-bold text-[#17251C] hover:bg-[#DDEBDD] brutal-shadow-sm mb-2"
           >
             <ShieldAlert className="w-3.5 h-3.5 text-[#16834A]" />
             <span>SWITCH DEMO ROLE &rarr;</span>
           </Link>
         )}
+
+        <form action={signOutUser}>
+          <button
+            type="submit"
+            className="flex items-center justify-center space-x-1.5 w-full py-1.5 px-2 bg-[#F4F1E8] hover:bg-[#D94C4C] hover:text-white brutal-border text-[11px] font-mono font-bold text-[#17251C] transition-colors cursor-pointer"
+            title="Log out and return to home"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>LOG OUT</span>
+          </button>
+        </form>
       </div>
     </aside>
   );

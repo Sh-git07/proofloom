@@ -111,10 +111,12 @@ export function Header({
             <form action={signOutUser}>
               <button
                 type="submit"
-                title="Sign Out"
-                className="p-1.5 bg-[#F4F1E8] brutal-border hover:bg-[#D94C4C] hover:text-white transition-colors cursor-pointer"
+                title="Log out"
+                aria-label="Log out"
+                className="p-1.5 sm:px-2 sm:py-1.5 bg-[#F4F1E8] brutal-border hover:bg-[#D94C4C] hover:text-white transition-colors cursor-pointer flex items-center space-x-1"
               >
                 <LogOut className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-mono font-bold uppercase hidden md:inline">Log out</span>
               </button>
             </form>
           </div>

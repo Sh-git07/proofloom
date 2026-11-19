@@ -11,19 +11,19 @@ export default function LandingPage() {
       {/* Top Navigation */}
       <header className="border-b-2 border-[#253C2B] bg-white sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-[#16834A] text-white flex items-center justify-center font-bold font-mono text-sm brutal-border">
+          <Link href="/" className="flex items-center space-x-3 group hover:opacity-90 transition-opacity">
+            <div className="w-8 h-8 bg-[#16834A] text-white flex items-center justify-center font-bold font-mono text-sm brutal-border group-hover:bg-[#126b3c] transition-colors">
               PL
             </div>
             <div>
-              <span className="font-mono font-extrabold text-lg tracking-tight block leading-none">
+              <span className="font-mono font-extrabold text-lg tracking-tight block leading-none group-hover:text-[#16834A] transition-colors">
                 PROOFLOOM
               </span>
               <span className="font-mono text-[9px] text-[#637367] uppercase tracking-wider block mt-0.5">
                 Brand Integrity Platform
               </span>
             </div>
-          </div>
+          </Link>
 
           <div className="flex items-center space-x-4">
             <Link
