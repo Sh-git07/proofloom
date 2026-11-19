@@ -924,7 +924,7 @@ export function AuditReportView({
                               </button>
 
                               <Link
-                                href={`/provenance?claim=${encodeURIComponent(finding.excerpt)}`}
+                                href={`/provenance?claim=${encodeURIComponent(finding.excerpt)}&auditId=${audit.id}`}
                                 onClick={(e) => e.stopPropagation()}
                                 className="brutal-btn brutal-btn-secondary px-2.5 py-1.5 text-[11px] flex items-center space-x-1"
                               >

@@ -31,6 +31,7 @@ import {
   History,
   Scale,
   RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 
 interface ReviewFinding {
@@ -726,18 +727,34 @@ export function ReviewDetailWorkbench({
                     <span className="font-bold text-[#16834A]">{finding.recommended_action}</span>
                   </div>
 
-                  {canReview && (
-                    <button
-                      type="button"
-                      onClick={() => handleToggleResolved(finding)}
-                      className={`brutal-btn px-3 py-1.5 text-xs flex items-center space-x-1.5 ${
-                        finding.is_resolved ? "brutal-btn-secondary" : "brutal-btn-lime"
-                      }`}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>{finding.is_resolved ? "MARK UNRESOLVED" : "MARK AS RESOLVED"}</span>
-                    </button>
-                  )}
+                  <div className="flex items-center space-x-2">
+                    {(finding.category === "claims" ||
+                      finding.category === "claim_reliability" ||
+                      finding.category?.toLowerCase().includes("claim")) && (
+                      <Link
+                        href={`/provenance?claim=${encodeURIComponent(finding.excerpt)}${
+                          latestAudit?.id ? `&auditId=${latestAudit.id}` : ""
+                        }`}
+                        className="brutal-btn brutal-btn-secondary px-2.5 py-1 text-[11px] flex items-center space-x-1"
+                      >
+                        <ExternalLink className="w-3 h-3 text-[#16834A]" />
+                        <span>PROVENANCE &rarr;</span>
+                      </Link>
+                    )}
+
+                    {canReview && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleResolved(finding)}
+                        className={`brutal-btn px-3 py-1.5 text-xs flex items-center space-x-1.5 ${
+                          finding.is_resolved ? "brutal-btn-secondary" : "brutal-btn-lime"
+                        }`}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{finding.is_resolved ? "MARK UNRESOLVED" : "MARK AS RESOLVED"}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))
