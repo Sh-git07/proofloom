@@ -567,8 +567,26 @@ export async function executeNextStage(auditId: string) {
 
         const { data: facts } = await supabase
           .from("approved_facts")
-          .select("*")
+          .select("*, source_documents(id, status, expiry_date, version)")
           .eq("organisation_id", orgId);
+
+        // Map raw facts to include document provenance fields
+        const rawFacts = (facts as any[]) || [];
+        const mappedFacts: DatabaseFact[] = rawFacts.map((f) => {
+          const srcDoc = f.source_documents as {
+            id?: string;
+            status?: string;
+            expiry_date?: string;
+            version?: string;
+          } | null;
+          return {
+            ...f,
+            source_document_id: f.source_document_id ?? null,
+            source_document_status: srcDoc?.status ?? null,
+            source_document_expiry: srcDoc?.expiry_date ?? null,
+            source_document_version: srcDoc?.version ?? f.source_document_version ?? null,
+          } as DatabaseFact;
+        });
 
         const { data: settings } = await supabase
           .from("organisation_settings")
@@ -617,7 +635,7 @@ export async function executeNextStage(auditId: string) {
 
             const verified = verifyClaimAgainstEvidence(
               raw,
-              (facts as unknown as DatabaseFact[]) || [],
+              mappedFacts,
               tolerance
             );
 
@@ -685,9 +703,23 @@ export async function executeNextStage(auditId: string) {
                 start_offset: raw.startIndex,
                 end_offset: raw.endIndex,
                 explanation: verified.explanation,
-                guideline_reference: verified.matchedFact
-                  ? `Approved Fact: ${verified.matchedFact.name}`
-                  : "Claim Provenance & Evidence Standard §2.1",
+                guideline_reference: (() => {
+                  const mf = verified.matchedFact;
+                  if (!mf) return "Claim Provenance & Evidence Standard §2.1";
+                  let ref = `Approved Fact: ${mf.name}`;
+                  if (mf.source_document_id) {
+                    const srcDoc = rawFacts.find((f: any) => f.id === mf.id)
+                      ?.source_documents as { id?: string; status?: string } | null;
+                    const docName = mf.source_citation?.split(",")[0] || "Source Document";
+                    const ver = mf.source_document_version ? ` v${mf.source_document_version}` : "";
+                    const pg = mf.source_page ? `, p.${mf.source_page}` : "";
+                    ref += ` | Source: ${docName}${ver}${pg}`;
+                    if (mf.source_excerpt) {
+                      ref += ` | Excerpt: "${mf.source_excerpt.slice(0, 80)}${mf.source_excerpt.length > 80 ? "…" : ""}"`;
+                    }
+                  }
+                  return ref;
+                })(),
                 verification_status: verified.status,
                 recommended_action:
                   verified.status === "CONTRADICTED"

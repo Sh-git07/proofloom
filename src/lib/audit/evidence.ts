@@ -12,6 +12,13 @@ export interface DatabaseFact {
   superseded_by: string | null;
   source_citation?: string | null;
   metric?: string | null;
+  // Document provenance (populated when fact was extracted from a source document)
+  source_document_id?: string | null;
+  source_document_status?: string | null;
+  source_document_expiry?: string | null;
+  source_excerpt?: string | null;
+  source_page?: number | null;
+  source_document_version?: string | null;
 }
 
 export interface EvidenceMatchResult {
@@ -36,7 +43,7 @@ export function verifyClaimAgainstEvidence(
   // 1. Candidate Retrieval by metric matching and token overlap
   const candidates: Array<{ fact: DatabaseFact; score: number }> = [];
 
-  for (const fact of facts) {
+  for (let fact of facts) {
     // Only approved and expired/superseded facts participate in evidence evaluation
     // Pending and rejected facts must NEVER be used as authoritative evidence
     if (
@@ -46,6 +53,23 @@ export function verifyClaimAgainstEvidence(
       (fact.approval_status as string) === "DRAFT"
     ) {
       continue;
+    }
+
+    // Facts derived from source documents: skip unless the document is APPROVED.
+    // Also treat facts from an expired document as OUTDATED by marking them expired.
+    if (fact.source_document_id) {
+      if (fact.source_document_status && fact.source_document_status !== "APPROVED") {
+        continue; // pending / rejected document — never use as evidence
+      }
+      // Treat expired document the same as an expired fact
+      if (
+        fact.source_document_expiry &&
+        new Date(fact.source_document_expiry) < now &&
+        !fact.expires_at
+      ) {
+        // Clone fact with synthetic expiry so the superseded check below fires
+        fact = { ...fact, expires_at: fact.source_document_expiry };
+      }
     }
 
     let score = 0;

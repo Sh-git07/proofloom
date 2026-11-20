@@ -1072,6 +1072,20 @@ export function AuditReportView({
                               </div>
                             )}
 
+                            {/* Document provenance — shown when guideline_reference encodes a Source Document */}
+                            {finding.guideline_reference?.includes("| Source:") && (() => {
+                              const parts = finding.guideline_reference.split(" | ").filter((p: string) => p.startsWith("Source:") || p.startsWith("Excerpt:"));
+                              if (!parts.length) return null;
+                              return (
+                                <div className="p-2 bg-[#F4F1E8] border border-[#DDEBDD] space-y-1 font-mono text-[10px]">
+                                  <span className="font-bold text-[#637367] uppercase block">DOCUMENT PROVENANCE</span>
+                                  {parts.map((p: string, i: number) => (
+                                    <div key={i} className="text-[#17251C]">{p}</div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+
                             {/* Terminology specific standard display (Requirement 6) */}
                             {finding.category === "terminology" && !isDisclaimer && (
                               <div className="p-2 bg-[#F4F1E8] brutal-border space-y-1">

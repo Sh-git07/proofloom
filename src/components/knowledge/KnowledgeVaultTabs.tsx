@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
@@ -40,6 +41,7 @@ import {
   ExternalLink,
   Clock,
   Check,
+  FileText,
 } from "lucide-react";
 
 export interface FactItem {
@@ -188,6 +190,23 @@ export function KnowledgeVaultTabs({
             </button>
           );
         })}
+      </div>
+
+      {/* Source Documents shortcut — additive, separate page */}
+      <div className="brutal-panel bg-[#F4F1E8] p-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-mono text-[#637367]">
+          <FileText className="w-3.5 h-3.5" />
+          <span>07 SOURCE DOCUMENTS — Upload evidence PDFs, DOCXs, TXTs and review extracted facts</span>
+        </div>
+        <Link href="/knowledge/documents">
+          <button
+            type="button"
+            className="px-3 py-2 brutal-border font-mono font-bold text-xs uppercase bg-[#F4F1E8] text-[#17251C] hover:bg-[#DDEBDD] flex items-center gap-1.5 cursor-pointer"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            OPEN →
+          </button>
+        </Link>
       </div>
 
       {actionError && (
