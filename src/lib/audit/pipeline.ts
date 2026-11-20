@@ -7,6 +7,7 @@ import { checkAccessibilityDeterministic } from "./accessibility";
 import { calculateAuditScores } from "./scoring";
 import { AuditFindingRecord, AuditSeverity, AuditDimension } from "./types";
 import { generateStructured } from "@/lib/ai";
+import { deriveEngineModeLabel, AIStageOutcome } from "./labelling";
 import { z } from "zod";
 
 export const STAGE_NAMES = [
@@ -151,7 +152,7 @@ export async function executeNextStage(auditId: string) {
       case 2: {
         // [02] CLAIM EXTRACTION
         const extracted = extractClaimsDeterministic(contentBody);
-        let aiClaimsStatus: "used" | "failed" | "not_used" = "not_used";
+        let aiClaimsOutcome: AIStageOutcome = "AI: not used";
 
         // Augment with AI if live mode enabled
         if (mode === "live_ai") {
@@ -193,13 +194,16 @@ export async function executeNextStage(auditId: string) {
                   });
                 }
               }
-              aiClaimsStatus = "used";
+              aiClaimsOutcome = aiClaims.isFallback
+                ? "AI: used (fallback model)"
+                : "AI: used (primary model)";
             } else {
-              aiClaimsStatus = "failed";
+              aiClaimsOutcome = "AI: failed, rules only (invalid structure)";
             }
           } catch (err) {
             console.warn("AI claim extraction fallback:", err);
-            aiClaimsStatus = "failed";
+            const reason = err instanceof Error ? err.message : String(err);
+            aiClaimsOutcome = `AI: failed, rules only (${reason})`;
           }
         }
 
@@ -227,13 +231,7 @@ export async function executeNextStage(auditId: string) {
         }
         findingsCount = extracted.length;
 
-        if (mode !== "live_ai") {
-          stageDetail = `AI: not used • Completed with ${findingsCount} claims`;
-        } else if (aiClaimsStatus === "used") {
-          stageDetail = `AI: used • Completed with ${findingsCount} claims`;
-        } else {
-          stageDetail = `AI: failed, rules only • Completed with ${findingsCount} claims (warning: AI claim extraction unavailable)`;
-        }
+        stageDetail = `${aiClaimsOutcome} • Completed with ${findingsCount} claims`;
         break;
       }
 
@@ -273,6 +271,7 @@ export async function executeNextStage(auditId: string) {
           recommended_action: string;
           suggested_replacement?: string;
           confidence: "high" | "medium" | "low";
+          confidence_note?: string;
           is_resolved: boolean;
           claim_id?: string;
         }> = [];
@@ -375,6 +374,7 @@ export async function executeNextStage(auditId: string) {
                     : "Attach authoritative evidence source or remove numerical claim.",
                 suggested_replacement: suggestedReplacement,
                 confidence: "high",
+                confidence_note: "Rule",
                 is_resolved: false,
                 claim_id: claim.id,
               });
@@ -402,7 +402,7 @@ export async function executeNextStage(auditId: string) {
           (termRules as unknown as DatabaseTermRule[]) || []
         );
 
-        let aiVoiceStatus: "used" | "failed" | "not_used" = "not_used";
+        let aiVoiceOutcome: AIStageOutcome = "AI: not used";
 
         // Augment with Live AI if enabled
         if (mode === "live_ai") {
@@ -522,17 +522,16 @@ export async function executeNextStage(auditId: string) {
                 addedAICount++;
               }
 
-              if (aiRes.data.findings.length > 0 && addedAICount === 0) {
-                aiVoiceStatus = "failed";
-              } else {
-                aiVoiceStatus = "used";
-              }
+              aiVoiceOutcome = aiRes.isFallback
+                ? "AI: used (fallback model)"
+                : "AI: used (primary model)";
             } else {
-              aiVoiceStatus = "failed";
+              aiVoiceOutcome = "AI: failed, rules only (invalid structure)";
             }
           } catch (err) {
             console.warn("AI voice analysis failed:", err);
-            aiVoiceStatus = "failed";
+            const reason = err instanceof Error ? err.message : String(err);
+            aiVoiceOutcome = `AI: failed, rules only (${reason})`;
           }
         }
 
@@ -551,7 +550,7 @@ export async function executeNextStage(auditId: string) {
             recommended_action: f.recommendedAction,
             suggested_replacement: f.suggestedReplacement,
             confidence: (f.confidence as "high" | "medium" | "low") || "high",
-            confidence_note: f.id.includes("AI") ? "AI" : "rules",
+            confidence_note: f.id.includes("AI") ? "AI" : "Rule",
             is_resolved: false,
           }));
 
@@ -559,13 +558,7 @@ export async function executeNextStage(auditId: string) {
         }
         findingsCount = voiceFindings.length;
 
-        if (mode !== "live_ai") {
-          stageDetail = `AI: not used • Completed with ${findingsCount} findings`;
-        } else if (aiVoiceStatus === "used") {
-          stageDetail = `AI: used • Completed with ${findingsCount} findings`;
-        } else {
-          stageDetail = `AI: failed, rules only • Completed with ${findingsCount} findings (warning: AI voice analysis unavailable)`;
-        }
+        stageDetail = `${aiVoiceOutcome} • Completed with ${findingsCount} findings`;
         break;
       }
 
@@ -600,6 +593,7 @@ export async function executeNextStage(auditId: string) {
             recommended_action: f.recommendedAction,
             suggested_replacement: f.suggestedReplacement,
             confidence: (f.confidence as "high" | "medium" | "low") || "high",
+            confidence_note: "Rule",
             is_resolved: false,
           }));
 
@@ -628,6 +622,7 @@ export async function executeNextStage(auditId: string) {
             guideline_reference: f.guidelineReference,
             recommended_action: f.recommendedAction,
             confidence: (f.confidence as "high" | "medium" | "low") || "high",
+            confidence_note: "Rule",
             is_resolved: false,
           }));
 
@@ -670,8 +665,16 @@ export async function executeNextStage(auditId: string) {
 
         const { data: priorStages } = await supabase
           .from("audit_stages")
-          .select("detail, error")
+          .select("stage_number, detail, error")
           .eq("audit_id", auditId);
+
+        const engineModeLabel = deriveEngineModeLabel(
+          mode,
+          (priorStages || []).map((s) => ({
+            stage_number: s.stage_number,
+            detail: s.detail,
+          }))
+        );
 
         const hasAIFailure =
           mode === "live_ai" &&
@@ -693,6 +696,7 @@ export async function executeNextStage(auditId: string) {
               accessibility: scores.accessibility,
               visual: scores.visual,
               ai_warning: hasAIFailure,
+              engine_mode: engineModeLabel,
             },
             status: "COMPLETED",
           })

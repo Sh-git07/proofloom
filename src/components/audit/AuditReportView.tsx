@@ -18,6 +18,11 @@ import { buildViewerSegments } from "@/lib/audit/viewer";
 import { getSentenceAround } from "@/lib/audit/terminology";
 import { diffWordsWithSpace, Change } from "diff";
 import {
+  deriveEngineModeLabel,
+  extractStageOutcome,
+  calculateStageFindingsCount,
+} from "@/lib/audit/labelling";
+import {
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
@@ -58,6 +63,8 @@ interface AuditFinding {
   suggested_replacement?: string;
   suggested_sentence?: string;
   confidence?: string;
+  confidence_note?: string;
+  source?: "Rule" | "AI";
   is_resolved?: boolean;
 }
 
@@ -157,6 +164,8 @@ export function AuditReportView({
   const hasUnresolvedCritical = findings.some(
     (f) => f.severity === "CRITICAL" && !f.is_resolved
   );
+
+  const engineMode = deriveEngineModeLabel(audit.mode, stages);
 
   const hasAIFailed =
     audit.mode === "live_ai" &&
@@ -441,18 +450,12 @@ export function AuditReportView({
             </span>
             <span
               className={`font-mono text-[10px] font-bold px-2 py-0.5 brutal-border ${
-                hasAIFailed
+                engineMode.includes("partial") || (engineMode === "RULES ONLY" && audit.mode === "live_ai")
                   ? "bg-[#D94C4C] text-white"
-                  : audit.mode === "live_ai"
-                  ? "bg-[#B7F28B] text-[#17251C]"
-                  : "bg-[#F4F1E8] text-[#17251C]"
+                  : "bg-[#B7F28B] text-[#17251C]"
               }`}
             >
-              {hasAIFailed
-                ? "LIVE AI (GEMINI): voice analysis unavailable, rules only"
-                : audit.mode === "live_ai"
-                ? "LIVE AI (GEMINI)"
-                : "DEMO (RULE-BASED)"}
+              {engineMode}
             </span>
           </div>
           <h1 className="font-mono font-extrabold text-2xl sm:text-3xl tracking-tight text-[#17251C] mt-1">
@@ -549,10 +552,17 @@ export function AuditReportView({
         </div>
       )}
 
-      {hasAIFailed && (
+      {engineMode.includes("partial") && (
         <div className="p-3.5 bg-[#FFF3CD] border-2 border-[#E6A23C] text-[#856404] text-xs font-mono font-bold flex items-center space-x-2">
           <AlertTriangle className="w-4 h-4 shrink-0 text-[#E6A23C]" />
-          <span>LIVE AI (GEMINI): voice analysis unavailable, rules only. Deterministic rule-based analysis was preserved.</span>
+          <span>{engineMode}. Deterministic rule-based analysis was preserved for unassisted stages.</span>
+        </div>
+      )}
+
+      {engineMode === "RULES ONLY" && audit.mode === "live_ai" && (
+        <div className="p-3.5 bg-[#FFF3CD] border-2 border-[#E6A23C] text-[#856404] text-xs font-mono font-bold flex items-center space-x-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-[#E6A23C]" />
+          <span>RULES ONLY: External AI was unavailable across all stages. Deterministic rule-based analysis completed.</span>
         </div>
       )}
 
@@ -613,18 +623,14 @@ export function AuditReportView({
                         {stage.detail?.includes("AI: failed, rules only") ? (
                           <span className="text-[#D94C4C] font-bold flex items-center space-x-1">
                             <AlertTriangle className="w-3.5 h-3.5 text-[#D94C4C] shrink-0" />
-                            <span>WARNING: AI failed, rules only ({stage.findings_count || 0} findings)</span>
+                            <span>WARNING: {extractStageOutcome(stage.detail)} ({stage.findings_count ?? calculateStageFindingsCount(stage.stage_number, findings)} findings)</span>
                           </span>
                         ) : (
                           <span className="text-[#16834A] flex items-center space-x-1.5 font-bold">
-                            <span>PASSED ({stage.findings_count || 0} findings)</span>
+                            <span>PASSED ({stage.findings_count ?? calculateStageFindingsCount(stage.stage_number, findings)} findings)</span>
                             <span className="text-[#637367]">&bull;</span>
                             <span className={stage.detail?.includes("AI: used") ? "text-[#16834A]" : "text-[#637367]"}>
-                              {stage.detail?.includes("AI: used")
-                                ? "AI: used"
-                                : audit.mode === "live_ai" && (stage.stage_number === 2 || stage.stage_number === 4)
-                                ? "AI: used"
-                                : "AI: not used"}
+                              {extractStageOutcome(stage.detail)}
                             </span>
                           </span>
                         )}
@@ -695,12 +701,8 @@ export function AuditReportView({
 
                 <div className="flex items-center justify-between text-[11px] font-mono">
                   <span className="text-[#637367]">ENGINE MODE:</span>
-                  <span className={`font-bold ${hasAIFailed ? "text-[#D94C4C]" : "text-[#17251C]"}`}>
-                    {hasAIFailed
-                      ? "LIVE AI (GEMINI): voice analysis unavailable, rules only"
-                      : audit.mode === "live_ai"
-                      ? "LIVE AI (GEMINI)"
-                      : "DEMO (RULE-BASED)"}
+                  <span className={`font-bold ${engineMode.includes("partial") || (engineMode === "RULES ONLY" && audit.mode === "live_ai") ? "text-[#D94C4C]" : "text-[#17251C]"}`}>
+                    {engineMode}
                   </span>
                 </div>
               </div>
@@ -807,7 +809,9 @@ export function AuditReportView({
                 const isFailed =
                   (stg.detail && stg.detail.includes("AI: failed, rules only")) ||
                   stg.status === "FAILED";
-                const isAIUsed = stg.detail && stg.detail.includes("AI: used");
+                const outcome = extractStageOutcome(stg.detail);
+                const isAIUsed = outcome.includes("AI: used");
+                const stageFindingsCount = stg.findings_count ?? calculateStageFindingsCount(stg.stage_number, findings);
 
                 return (
                   <div
@@ -832,7 +836,7 @@ export function AuditReportView({
                     </div>
                     <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-[#253C2B]/15 text-[10px]">
                       <span className="text-[#637367]">
-                        {stg.findings_count || 0} findings
+                        {stageFindingsCount} findings
                       </span>
                       <span
                         className={`font-bold ${
@@ -843,11 +847,7 @@ export function AuditReportView({
                             : "text-[#637367]"
                         }`}
                       >
-                        {isFailed
-                          ? "AI: failed, rules only"
-                          : isAIUsed
-                          ? "AI: used"
-                          : "AI: not used"}
+                        {outcome}
                       </span>
                     </div>
                   </div>
@@ -969,6 +969,15 @@ export function AuditReportView({
                         <div className="flex items-center justify-between border-b border-[#253C2B]/15 pb-2 mb-2 font-mono">
                           <div className="flex items-center space-x-2">
                             <IdTag id={finding.id} />
+                            <span
+                              className={`text-[9px] font-extrabold px-1.5 py-0.2 brutal-border ${
+                                (finding.source === "AI" || finding.confidence_note === "AI" || finding.id?.includes("AI"))
+                                  ? "bg-[#17251C] text-[#B7F28B]"
+                                  : "bg-[#F4F1E8] text-[#637367]"
+                              }`}
+                            >
+                              {(finding.source === "AI" || finding.confidence_note === "AI" || finding.id?.includes("AI")) ? "AI" : "Rule"}
+                            </span>
                             <SeverityChip severity={finding.severity} />
                             {finding.verification_status && (
                               <span

@@ -46,6 +46,8 @@ interface ReviewFinding {
   recommended_action: string;
   suggested_replacement?: string;
   confidence?: string;
+  confidence_note?: string;
+  source?: "Rule" | "AI";
   is_resolved?: boolean;
 }
 
@@ -651,6 +653,15 @@ export function ReviewDetailWorkbench({
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#253C2B]/15 pb-2 font-mono">
                   <div className="flex items-center space-x-2">
                     <IdTag id={finding.id.slice(0, 8)} prefix="FIND-" />
+                    <span
+                      className={`text-[9px] font-extrabold px-1.5 py-0.2 brutal-border ${
+                        finding.source === "AI" || finding.confidence_note === "AI" || finding.id?.includes("AI")
+                          ? "bg-[#17251C] text-[#B7F28B]"
+                          : "bg-[#F4F1E8] text-[#637367]"
+                      }`}
+                    >
+                      {finding.source === "AI" || finding.confidence_note === "AI" || finding.id?.includes("AI") ? "AI" : "Rule"}
+                    </span>
                     <SeverityChip severity={finding.severity as any} />
                     {finding.verification_status && (
                       <span

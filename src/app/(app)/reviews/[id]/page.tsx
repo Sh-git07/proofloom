@@ -139,6 +139,7 @@ export default async function ReviewDetailPage({ params }: ReviewDetailPageProps
         recommended_action,
         suggested_replacement,
         confidence,
+        confidence_note,
         is_resolved
       `)
       .eq("audit_id", latestAudit.id)
@@ -206,6 +207,8 @@ export default async function ReviewDetailPage({ params }: ReviewDetailPageProps
         recommended_action: f.recommended_action,
         suggested_replacement: f.suggested_replacement,
         confidence: f.confidence,
+        confidence_note: f.confidence_note,
+        source: (f.confidence_note === "AI" || f.id?.includes("AI") || f.finding_code?.includes("AI") ? "AI" : "Rule") as "Rule" | "AI",
         is_resolved: f.is_resolved,
       }))}
       assignments={(assignmentsRes.data || []).map((a: any) => ({

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserContext } from "@/lib/auth-helpers";
 import { notFound, redirect } from "next/navigation";
 import { AuditReportView } from "@/components/audit/AuditReportView";
+import { calculateStageFindingsCount } from "@/lib/audit/labelling";
 
 interface AuditReportProps {
   params: Promise<{ id: string }>;
@@ -124,6 +125,8 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
         started_at: s.started_at,
         completed_at: s.finished_at,
         error_message: s.error,
+        detail: s.detail,
+        findings_count: calculateStageFindingsCount(s.stage_number, findings || []),
       }))}
       initialFindings={(findings || []).map((f) => ({
         id: f.id,
@@ -138,6 +141,8 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
         recommended_action: f.recommended_action,
         suggested_replacement: f.suggested_replacement,
         confidence: f.confidence as "high" | "medium" | "low",
+        confidence_note: f.confidence_note,
+        source: (f.confidence_note === "AI" || f.id?.includes("AI") || f.finding_code?.includes("AI") ? "AI" : "Rule") as "Rule" | "AI",
         is_resolved: f.is_resolved,
       }))}
     />
