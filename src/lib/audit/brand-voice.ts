@@ -1,4 +1,5 @@
 import { AuditFindingRecord } from "./types";
+import { z } from "zod";
 
 export interface VoiceRule {
   pattern: RegExp;
@@ -103,3 +104,72 @@ export function checkBrandVoiceDeterministic(
 
   return findings;
 }
+
+export const voiceFindingItemSchema = z
+  .object({
+    excerpt: z.string().default(""),
+    severity: z
+      .string()
+      .optional()
+      .transform((val) => (val ? val.toUpperCase() : "MEDIUM"))
+      .pipe(z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]))
+      .or(z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]))
+      .default("MEDIUM"),
+    explanation: z.string().default("Brand voice violation detected."),
+    guideline_cited: z.string().optional().default("Brand Voice Standard"),
+    guideline: z.string().optional(),
+    suggested_replacement: z.string().optional(),
+    replacement: z.string().optional(),
+  })
+  .transform((item) => ({
+    excerpt: item.excerpt.trim(),
+    severity: (typeof item.severity === "string" ? item.severity.toUpperCase() : item.severity) as
+      | "CRITICAL"
+      | "HIGH"
+      | "MEDIUM"
+      | "LOW"
+      | "INFO",
+    explanation: item.explanation,
+    guideline_cited: item.guideline_cited || item.guideline || "Brand Voice Standard",
+    suggested_replacement: item.suggested_replacement || item.replacement,
+  }));
+
+export const voiceAnalysisResponseSchema = z
+  .union([
+    z.array(voiceFindingItemSchema),
+    z.object({
+      findings: z.array(voiceFindingItemSchema),
+    }),
+  ])
+  .transform((val) => {
+    if (Array.isArray(val)) {
+      return { findings: val };
+    }
+    return val;
+  });
+
+export type VoiceAnalysisResponse = z.infer<typeof voiceAnalysisResponseSchema>;
+
+export const GEMINI_VOICE_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    findings: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          excerpt: { type: "STRING" },
+          severity: {
+            type: "STRING",
+            enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"],
+          },
+          explanation: { type: "STRING" },
+          guideline_cited: { type: "STRING" },
+          suggested_replacement: { type: "STRING" },
+        },
+        required: ["excerpt", "severity", "explanation"],
+      },
+    },
+  },
+  required: ["findings"],
+};

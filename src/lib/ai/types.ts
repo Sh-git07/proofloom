@@ -19,6 +19,7 @@ export interface AIRequestOptions<T> {
   organisationId?: string;
   allowExternalAI?: boolean;
   throwOnError?: boolean;
+  responseSchema?: Record<string, unknown>;
 }
 
 export interface AIProviderResult<T> {

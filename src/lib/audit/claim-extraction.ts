@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export interface RawExtractedClaim {
   text: string;
   startIndex: number;
@@ -95,4 +97,116 @@ export function extractClaimsDeterministic(content: string): RawExtractedClaim[]
   }
 
   return claims.sort((a, b) => a.startIndex - b.startIndex);
+}
+
+export const claimItemSchema = z
+  .object({
+    claim_text: z.string().optional(),
+    excerpt: z.string().optional(),
+    claim_type: z
+      .string()
+      .optional()
+      .transform((val) => (val ? val.toLowerCase() : "factual"))
+      .pipe(
+        z.enum(["numerical", "factual", "comparative", "promotional", "opinion"])
+      )
+      .or(
+        z.enum(["numerical", "factual", "comparative", "promotional", "opinion"])
+      )
+      .default("factual"),
+    confidence: z
+      .string()
+      .optional()
+      .transform((val) => (val ? val.toLowerCase() : "high"))
+      .pipe(z.enum(["high", "medium", "low"]))
+      .or(z.enum(["high", "medium", "low"]))
+      .default("high"),
+  })
+  .transform((item) => ({
+    claim_text: (item.claim_text || item.excerpt || "").trim(),
+    claim_type: item.claim_type as
+      | "numerical"
+      | "factual"
+      | "comparative"
+      | "promotional"
+      | "opinion",
+    confidence: item.confidence as "high" | "medium" | "low",
+  }));
+
+export const claimsExtractionResponseSchema = z
+  .union([
+    z.array(claimItemSchema),
+    z.object({
+      claims: z.array(claimItemSchema),
+    }),
+  ])
+  .transform((val) => {
+    if (Array.isArray(val)) {
+      return { claims: val };
+    }
+    return val;
+  });
+
+export type ClaimsExtractionResponse = z.infer<typeof claimsExtractionResponseSchema>;
+
+export const GEMINI_CLAIMS_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    claims: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          claim_text: { type: "STRING" },
+          claim_type: {
+            type: "STRING",
+            enum: ["numerical", "factual", "comparative", "promotional", "opinion"],
+          },
+          confidence: {
+            type: "STRING",
+            enum: ["high", "medium", "low"],
+          },
+        },
+        required: ["claim_text", "claim_type"],
+      },
+    },
+  },
+  required: ["claims"],
+};
+
+export function parseAndValidateClaims(
+  rawInput: unknown,
+  content: string
+): Array<{
+  claim_text: string;
+  claim_type: "numerical" | "factual" | "comparative" | "promotional" | "opinion";
+  confidence: "high" | "medium" | "low";
+  startIndex: number;
+  endIndex: number;
+}> {
+  const parsed = claimsExtractionResponseSchema.parse(rawInput);
+  const validated: Array<{
+    claim_text: string;
+    claim_type: "numerical" | "factual" | "comparative" | "promotional" | "opinion";
+    confidence: "high" | "medium" | "low";
+    startIndex: number;
+    endIndex: number;
+  }> = [];
+
+  for (const c of parsed.claims) {
+    if (!c.claim_text) continue;
+    const idx = content.indexOf(c.claim_text);
+    // Excerpt must be an exact literal substring of the content
+    if (idx !== -1) {
+      validated.push({
+        claim_text: c.claim_text,
+        claim_type: c.claim_type,
+        confidence: c.confidence,
+        startIndex: idx,
+        endIndex: idx + c.claim_text.length,
+      });
+    }
+  }
+
+  return validated;
 }

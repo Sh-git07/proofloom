@@ -57,6 +57,7 @@ export async function callGeminiStructured<T>(
         contents,
         generationConfig: {
           response_mime_type: "application/json",
+          ...(options.responseSchema ? { response_schema: options.responseSchema } : {}),
           temperature: 0.1,
           thinkingConfig: {
             thinkingBudget: 0,

@@ -116,6 +116,20 @@ export function AuditReportView({
 
   const [stages, setStages] = React.useState<AuditStage[]>(initialStages);
   const [findings, setFindings] = React.useState<AuditFinding[]>(initialFindings);
+
+  React.useEffect(() => {
+    if (initialFindings && initialFindings.length > 0) {
+      setFindings(initialFindings);
+      setSelectedFindingIds((prev) => (prev.length === 0 ? [initialFindings[0].id] : prev));
+      setSelectedFindingId((prev) => prev || initialFindings[0].id);
+    }
+  }, [initialFindings]);
+
+  React.useEffect(() => {
+    if (initialStages && initialStages.length > 0) {
+      setStages(initialStages);
+    }
+  }, [initialStages]);
   const [isRunning, setIsRunning] = React.useState(
     audit.status === "QUEUED" || audit.status === "PROCESSING"
   );
@@ -248,6 +262,14 @@ export function AuditReportView({
                   : s
               )
             );
+          }
+
+          if (data.findings && Array.isArray(data.findings)) {
+            setFindings(data.findings);
+            if (data.findings.length > 0) {
+              setSelectedFindingIds((prev) => (prev.length === 0 ? [data.findings[0].id] : prev));
+              setSelectedFindingId((prev) => prev || data.findings[0].id);
+            }
           }
 
           if (data.completed) {

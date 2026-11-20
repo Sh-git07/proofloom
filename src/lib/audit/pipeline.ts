@@ -1,7 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { extractClaimsDeterministic } from "./claim-extraction";
+import {
+  extractClaimsDeterministic,
+  claimsExtractionResponseSchema,
+  GEMINI_CLAIMS_RESPONSE_SCHEMA,
+} from "./claim-extraction";
 import { verifyClaimAgainstEvidence, DatabaseFact } from "./evidence";
-import { checkBrandVoiceDeterministic } from "./brand-voice";
+import {
+  checkBrandVoiceDeterministic,
+  voiceAnalysisResponseSchema,
+  GEMINI_VOICE_RESPONSE_SCHEMA,
+} from "./brand-voice";
 import { checkTerminologyDeterministic, DatabaseTermRule } from "./terminology";
 import { checkAccessibilityDeterministic } from "./accessibility";
 import { calculateAuditScores } from "./scoring";
@@ -160,23 +168,10 @@ export async function executeNextStage(auditId: string) {
             const aiClaims = await generateStructured({
               task: "claim_extraction",
               system:
-                "You are a brand verification specialist. Extract specific factual, numerical, and comparative claims from the provided text. Return literal substrings only.",
+                "You are a brand verification specialist. Extract specific factual, numerical, and comparative claims from the provided text. Return JSON with a claims array: { \"claims\": [ { \"claim_text\": string, \"claim_type\": \"numerical\" | \"factual\" | \"comparative\" | \"promotional\" | \"opinion\", \"confidence\": \"high\" | \"medium\" | \"low\" } ] }. Every claim_text MUST be an exact literal substring of the provided text.",
               prompt: contentBody,
-              schema: z.object({
-                claims: z.array(
-                  z.object({
-                    claim_text: z.string(),
-                    claim_type: z.enum([
-                      "numerical",
-                      "factual",
-                      "comparative",
-                      "promotional",
-                      "opinion",
-                    ]),
-                    confidence: z.enum(["high", "medium", "low"]),
-                  })
-                ),
-              }),
+              schema: claimsExtractionResponseSchema,
+              responseSchema: GEMINI_CLAIMS_RESPONSE_SCHEMA,
               organisationId: orgId,
               throwOnError: true,
             });
@@ -185,6 +180,7 @@ export async function executeNextStage(auditId: string) {
               for (const c of aiClaims.data.claims) {
                 if (!c.claim_text || typeof c.claim_text !== "string") continue;
                 const idx = contentBody.indexOf(c.claim_text);
+                // Validate that excerpt is an exact literal substring of the content
                 if (idx !== -1 && !extracted.some((e) => e.text === c.claim_text)) {
                   extracted.push({
                     text: c.claim_text,
@@ -459,17 +455,8 @@ export async function executeNextStage(auditId: string) {
               task: "voice_analysis",
               system: systemPrompt,
               prompt: userPrompt,
-              schema: z.object({
-                findings: z.array(
-                  z.object({
-                    excerpt: z.string(),
-                    severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]),
-                    explanation: z.string(),
-                    guideline_cited: z.string(),
-                    suggested_replacement: z.string().optional(),
-                  })
-                ),
-              }),
+              schema: voiceAnalysisResponseSchema,
+              responseSchema: GEMINI_VOICE_RESPONSE_SCHEMA,
               organisationId: orgId,
               throwOnError: true,
             });
@@ -482,10 +469,25 @@ export async function executeNextStage(auditId: string) {
 
               for (const f of aiRes.data.findings) {
                 if (!f.excerpt || typeof f.excerpt !== "string") continue;
-                const idx = contentBody.indexOf(f.excerpt);
-                // Discard any excerpt that is not a literal substring
-                if (idx === -1) {
-                  continue;
+
+                // Locate excerpt in contentBody
+                let idx = contentBody.indexOf(f.excerpt);
+                let endIndex = 0;
+                if (idx !== -1) {
+                  endIndex = idx + f.excerpt.length;
+                } else {
+                  // Try trimmed match or case-insensitive match
+                  const trimmed = f.excerpt.trim();
+                  const trimIdx = contentBody.indexOf(trimmed);
+                  if (trimIdx !== -1) {
+                    idx = trimIdx;
+                    endIndex = trimIdx + trimmed.length;
+                  } else {
+                    // Fallback: If an AI finding's excerpt cannot be located in the text,
+                    // still list it in the findings list (just without a highlight, offsets 0)
+                    idx = 0;
+                    endIndex = 0;
+                  }
                 }
 
                 const lowerExcerpt = f.excerpt.trim().toLowerCase();
@@ -495,8 +497,17 @@ export async function executeNextStage(auditId: string) {
 
                 // Deduplicate: if an existing voice finding covers this exact span, skip
                 if (
+                  idx > 0 &&
                   voiceFindings.some(
-                    (vf) => vf.startIndex === idx && vf.endIndex === idx + f.excerpt.length
+                    (vf) => vf.startIndex === idx && vf.endIndex === endIndex
+                  )
+                ) {
+                  continue;
+                }
+                if (
+                  idx === 0 &&
+                  voiceFindings.some(
+                    (vf) => vf.excerpt.toLowerCase() === f.excerpt.toLowerCase()
                   )
                 ) {
                   continue;
@@ -508,7 +519,7 @@ export async function executeNextStage(auditId: string) {
                   severity: f.severity,
                   excerpt: f.excerpt,
                   startIndex: idx,
-                  endIndex: idx + f.excerpt.length,
+                  endIndex,
                   explanation: f.explanation,
                   guidelineReference:
                     f.guideline_cited || "Brand Voice Guidelines: Tone, Style & Hype Reduction",
@@ -738,8 +749,45 @@ export async function executeNextStage(auditId: string) {
       })
       .eq("id", stageId);
 
+    let finalAuditFindings: any[] | undefined;
+    if (stageNum === 7) {
+      const { data: dbFindings } = await supabase
+        .from("audit_findings")
+        .select("*")
+        .eq("audit_id", auditId)
+        .order("created_at", { ascending: true });
+
+      finalAuditFindings = (dbFindings || []).map((f) => ({
+        id: f.id,
+        category: (f.category === "claim_reliability" ? "claims" : f.category) as
+          | "voice"
+          | "claims"
+          | "terminology"
+          | "accessibility"
+          | "visual",
+        severity: f.severity as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO",
+        excerpt: f.excerpt,
+        start_index: f.start_offset ?? 0,
+        end_index: f.end_offset ?? 0,
+        explanation: f.explanation,
+        guideline_reference: f.guideline_reference,
+        verification_status: f.verification_status,
+        recommended_action: f.recommended_action,
+        suggested_replacement: f.suggested_replacement,
+        confidence: f.confidence as "high" | "medium" | "low",
+        confidence_note: f.confidence_note,
+        source: (f.confidence_note === "AI" ||
+        f.id?.includes("AI") ||
+        f.finding_code?.includes("AI")
+          ? "AI"
+          : "Rule") as "Rule" | "AI",
+        is_resolved: f.is_resolved,
+      }));
+    }
+
     return {
       completed: stageNum === 7,
+      findings: finalAuditFindings,
       stage: {
         number: stageNum,
         name: nextStage.stage_key || nextStage.stage_name,
