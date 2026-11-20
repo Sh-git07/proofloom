@@ -188,77 +188,196 @@ export async function executeNextStage(auditId: string) {
       // ============================================================
       // [07] VISUAL CONSISTENCY (8-stage pipeline with image)
       // ============================================================
-      const imageStoragePath = contentVersionRow?.image_storage_path;
-      const imageAltText = contentVersionRow?.image_alt_text;
+      // Re-fetch image_storage_path directly from content_versions in case the
+      // audit join did not populate it (Supabase PostgREST join requires the FK
+      // column to be named consistently; direct fetch is the safest fallback).
+      const contentVersionId = audit.content_version_id as string | null;
+      let imageStoragePath = contentVersionRow?.image_storage_path as string | null | undefined;
+      let imageAltText = contentVersionRow?.image_alt_text as string | null | undefined;
+
+      if (!imageStoragePath && contentVersionId) {
+        const { data: cvRow } = await supabase
+          .from("content_versions")
+          .select("image_storage_path, image_alt_text")
+          .eq("id", contentVersionId)
+          .single();
+        imageStoragePath = cvRow?.image_storage_path;
+        imageAltText = cvRow?.image_alt_text;
+      }
+
+      console.log(JSON.stringify({
+        tag: "VISUAL_STAGE_LOG",
+        step: "init",
+        auditId,
+        orgId,
+        contentVersionId,
+        imageStoragePath: imageStoragePath || null,
+        imageAltText: imageAltText ? "[present]" : null,
+      }));
 
       if (!imageStoragePath) {
         stageDetail = "AI: not used • No image attachment found; stage skipped";
         findingsCount = 0;
       } else {
-        const { data: imageData, error: storageErr } = await supabase.storage
-          .from("content-uploads")
-          .download(imageStoragePath);
+        // Wrap the entire visual check in try/catch — NEVER fail silently
+        try {
+          const { data: imageData, error: storageErr } = await supabase.storage
+            .from("content-uploads")
+            .download(imageStoragePath);
 
-        if (storageErr || !imageData) {
-          stageDetail = `AI: not used • Image download failed: ${storageErr?.message || "Unknown"}`;
-          findingsCount = 0;
-        } else {
-          const imageBuffer = Buffer.from(await imageData.arrayBuffer());
+          console.log(JSON.stringify({
+            tag: "VISUAL_STAGE_LOG",
+            step: "image_download",
+            storageErr: storageErr?.message || null,
+            hasData: !!imageData,
+          }));
 
-          const { data: rawAssets } = await supabase
-            .from("approved_assets")
-            .select("id, name, asset_type, status, perceptual_hash, storage_path, colour_palette")
-            .eq("organisation_id", orgId)
-            .in("asset_type", ["logo", "palette", "color_palette"]);
-
-          const approvedLogos = (rawAssets || []).filter(
-            (a) => a.asset_type === "logo" && a.perceptual_hash
-          );
-          const paletteAsset = (rawAssets || []).find(
-            (a) => a.asset_type === "palette" || a.asset_type === "color_palette"
-          );
-          const approvedPaletteHexes: string[] | undefined = paletteAsset?.colour_palette
-            ? (paletteAsset.colour_palette as string[])
-            : undefined;
-
-          const itemData2 = audit.content_items as unknown as { platform?: string } | null;
-          const visualPlatform = itemData2?.platform || "LinkedIn";
-
-          const visualResult = await checkVisualConsistency({
-            imageBuffer,
-            imageAltText,
-            platform: visualPlatform,
-            auditId,
-            organisationId: orgId,
-            approvedLogos,
-            approvedPaletteHexes,
-          });
-
-          if (visualResult.findings.length > 0) {
-            const rows = visualResult.findings.map((f, idx) => ({
-              finding_code: `FND-VIS-${idx + 1}`,
+          if (storageErr || !imageData) {
+            // Store a WARNING finding so it shows in the report
+            const warnMsg = `Image could not be downloaded from storage: ${storageErr?.message || "Unknown error"}`;
+            await supabase.from("audit_findings").insert({
+              finding_code: "FND-VIS-ERR-1",
               audit_id: auditId,
               organisation_id: orgId,
               category: "visual",
-              severity: f.severity,
-              excerpt: f.excerpt,
-              start_offset: f.startIndex,
-              end_offset: f.endIndex,
-              explanation: f.explanation,
-              guideline_reference: f.guidelineReference,
-              recommended_action: f.recommendedAction,
-              suggested_replacement: f.suggestedReplacement,
-              verification_status: f.verificationStatus || null,
-              evidence_source_id: f.evidenceSourceId || null,
-              confidence: (f.confidence as "high" | "medium" | "low") || "high",
+              severity: "MEDIUM",
+              excerpt: "[Visual Check Warning]",
+              start_offset: 0,
+              end_offset: 0,
+              explanation: warnMsg,
+              guideline_reference: "Visual Brand Consistency Pipeline",
+              recommended_action: "Re-upload the image and re-run the audit to complete visual consistency checks.",
+              verification_status: "REQUIRES_REVIEW",
+              confidence: "high",
               confidence_note: "Rule",
               is_resolved: false,
-            }));
-            await supabase.from("audit_findings").insert(rows);
-          }
+            });
+            findingsCount = 1;
+            stageDetail = `AI: not used • REQUIRES REVIEW: image download failed — ${storageErr?.message || "unknown"}`;
+          } else {
+            const imageBuffer = Buffer.from(await imageData.arrayBuffer());
 
-          findingsCount = visualResult.findings.length;
-          stageDetail = `AI: not used • Visual consistency checks complete: ${findingsCount} findings (logo: ${visualResult.logoStatus})`;
+            console.log(JSON.stringify({
+              tag: "VISUAL_STAGE_LOG",
+              step: "image_received",
+              bytes: imageBuffer.length,
+            }));
+
+            const { data: rawAssets, error: assetsErr } = await supabase
+              .from("approved_assets")
+              .select("id, name, asset_type, status, perceptual_hash, storage_path, colour_palette")
+              .eq("organisation_id", orgId)
+              .in("asset_type", ["logo", "palette", "color_palette"]);
+
+            console.log(JSON.stringify({
+              tag: "VISUAL_STAGE_LOG",
+              step: "assets_loaded",
+              assetsErr: assetsErr?.message || null,
+              totalAssets: (rawAssets || []).length,
+              logoAssets: (rawAssets || []).filter((a) => a.asset_type === "logo").map((a) => ({
+                id: a.id,
+                name: a.name,
+                status: a.status,
+                hasHash: !!a.perceptual_hash,
+              })),
+            }));
+
+            const approvedLogos = (rawAssets || []).filter(
+              (a) => a.asset_type === "logo" && a.perceptual_hash
+            );
+            const paletteAsset = (rawAssets || []).find(
+              (a) => a.asset_type === "palette" || a.asset_type === "color_palette"
+            );
+            const approvedPaletteHexes: string[] | undefined = paletteAsset?.colour_palette
+              ? (paletteAsset.colour_palette as string[])
+              : undefined;
+
+            const itemData2 = audit.content_items as unknown as { platform?: string } | null;
+            const visualPlatform = itemData2?.platform || "LinkedIn";
+
+            const visualResult = await checkVisualConsistency({
+              imageBuffer,
+              imageAltText,
+              platform: visualPlatform,
+              auditId,
+              organisationId: orgId,
+              approvedLogos,
+              approvedPaletteHexes,
+            });
+
+            console.log(JSON.stringify({
+              tag: "VISUAL_STAGE_LOG",
+              step: "check_complete",
+              logoStatus: visualResult.logoStatus,
+              findingsCount: visualResult.findings.length,
+              colorIsOffPalette: visualResult.colorAnalysis.isOffPalette,
+              offPalettePercentage: visualResult.colorAnalysis.offPalettePercentage,
+              resolution: visualResult.resolution,
+            }));
+
+            if (visualResult.findings.length > 0) {
+              const rows = visualResult.findings.map((f, idx) => ({
+                finding_code: `FND-VIS-${idx + 1}`,
+                audit_id: auditId,
+                organisation_id: orgId,
+                category: "visual",
+                severity: f.severity,
+                excerpt: f.excerpt,
+                start_offset: f.startIndex,
+                end_offset: f.endIndex,
+                explanation: f.explanation,
+                guideline_reference: f.guidelineReference,
+                recommended_action: f.recommendedAction,
+                suggested_replacement: f.suggestedReplacement,
+                verification_status: f.verificationStatus || null,
+                evidence_source_id: f.evidenceSourceId || null,
+                confidence: (f.confidence as "high" | "medium" | "low") || "high",
+                confidence_note: "Rule",
+                is_resolved: false,
+              }));
+              const { error: insertErr } = await supabase.from("audit_findings").insert(rows);
+              console.log(JSON.stringify({
+                tag: "VISUAL_STAGE_LOG",
+                step: "findings_saved",
+                count: rows.length,
+                insertErr: insertErr?.message || null,
+              }));
+            }
+
+            findingsCount = visualResult.findings.length;
+            stageDetail = `AI: not used • Visual consistency checks complete: ${findingsCount} findings (logo: ${visualResult.logoStatus})`;
+          }
+        } catch (visualErr: unknown) {
+          // NEVER FAIL SILENTLY: on any error, record a WARNING finding
+          const errMsg = visualErr instanceof Error ? visualErr.message : String(visualErr);
+          console.error(JSON.stringify({
+            tag: "VISUAL_STAGE_LOG",
+            step: "error",
+            error: errMsg,
+          }));
+          try {
+            await supabase.from("audit_findings").insert({
+              finding_code: "FND-VIS-ERR-1",
+              audit_id: auditId,
+              organisation_id: orgId,
+              category: "visual",
+              severity: "MEDIUM",
+              excerpt: "[Visual Check Error]",
+              start_offset: 0,
+              end_offset: 0,
+              explanation: `Visual consistency check could not complete: ${errMsg}. Manual review required.`,
+              guideline_reference: "Visual Brand Consistency Pipeline",
+              recommended_action: "Re-upload the image and re-run the audit. If the error persists, contact support.",
+              verification_status: "REQUIRES_REVIEW",
+              confidence: "high",
+              confidence_note: "Rule",
+              is_resolved: false,
+            });
+          } catch {
+            // Ignore secondary insert error
+          }
+          findingsCount = 1;
+          stageDetail = `AI: not used • REQUIRES REVIEW: visual check error — ${errMsg}`;
         }
       }
     } else if (isFinalStage) {

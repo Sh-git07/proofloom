@@ -1234,8 +1234,8 @@ export function AuditReportView({
         </>
       )}
 
-      {/* VISUAL CONSISTENCY CARD — shown when image was audited */}
-      {imageSignedUrl && audit.checked_dimensions?.includes("visual") && (
+      {/* VISUAL CONSISTENCY CARD — shown when visual dimension was checked */}
+      {audit.checked_dimensions?.includes("visual") && (
         <div className="brutal-panel bg-white p-5 space-y-4">
           <div className="flex items-center justify-between border-b-2 border-[#253C2B] pb-3">
             <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-[#17251C]">
@@ -1244,66 +1244,143 @@ export function AuditReportView({
             <span className="font-mono text-[10px] text-[#637367]">AI: not used</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Image preview */}
-            <div className="space-y-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imageSignedUrl}
-                alt={imageAltText || "Audited image"}
-                className="w-full max-h-[300px] object-contain brutal-border bg-[#F4F1E8] p-2"
-              />
-              {imageAltText && (
-                <div className="p-2 bg-[#DDEBDD] brutal-border font-mono text-[10px] text-[#17251C]">
-                  <strong>ALT TEXT:</strong> {imageAltText}
-                </div>
-              )}
-              {!imageAltText && (
-                <div className="p-2 bg-[#F8D7DA] brutal-border font-mono text-[10px] text-[#D94C4C]">
-                  ⚠ Missing alt text — accessibility finding raised
-                </div>
-              )}
-            </div>
+          {/* Always show explicit check outcomes */}
+          {(() => {
+            const visualFindings = findings.filter((f) => f.category === "visual");
+            const logoFinding = visualFindings.find((f) => f.id?.includes("VIS-001") || f.excerpt?.startsWith("[Logo") || f.excerpt?.startsWith("[No Approved") || f.excerpt?.startsWith("[Outdated"));
+            const colourFinding = visualFindings.find((f) => f.excerpt?.startsWith("[Off-Palette") || f.explanation?.toLowerCase().includes("off-palette"));
+            const altFinding = visualFindings.find((f) => f.excerpt?.startsWith("[Missing Alt"));
+            const resFinding = visualFindings.find((f) => f.excerpt?.startsWith("[Low Resol"));
+            const errFinding = visualFindings.find((f) => f.excerpt === "[Visual Check Error]" || f.excerpt === "[Visual Check Warning]");
 
-            {/* Visual findings summary */}
-            <div className="space-y-2">
-              {findings
-                .filter((f) => f.category === "visual")
-                .map((f) => (
-                  <div
-                    key={f.id}
-                    className={`p-2.5 brutal-border text-xs font-mono ${
-                      f.severity === "HIGH"
-                        ? "bg-[#F8D7DA] border-[#D94C4C]"
-                        : f.severity === "MEDIUM"
-                        ? "bg-[#FFF3CD] border-[#E6A23C]"
-                        : f.severity === "INFO"
-                        ? "bg-[#DDEBDD] border-[#16834A]"
-                        : "bg-[#F4F1E8]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-[9px] font-extrabold px-1.5 py-0.5 brutal-border ${
-                        f.verification_status === "VERIFIED"
-                          ? "bg-[#B7F28B] text-[#17251C]"
-                          : f.verification_status === "OUTDATED"
-                          ? "bg-[#E6A23C] text-[#17251C]"
-                          : f.verification_status === "REQUIRES_REVIEW"
-                          ? "bg-[#F4F1E8] text-[#637367]"
-                          : "bg-[#F4F1E8] text-[#17251C]"
-                      }`}>
-                        {f.verification_status || f.severity}
-                      </span>
-                      <span className="text-[9px] text-[#637367] uppercase">{f.severity}</span>
-                    </div>
-                    <p className="text-[11px] text-[#17251C]">{f.explanation}</p>
-                    {f.guideline_reference && (
-                      <p className="text-[10px] text-[#637367] mt-1">📖 {f.guideline_reference}</p>
+            const logoStatus = logoFinding?.verification_status || (logoFinding ? (logoFinding.severity === "INFO" ? "VERIFIED" : "OUTDATED") : null);
+            const hasRan = visualFindings.length > 0;
+
+            return (
+              <div className="space-y-3">
+                {/* Outcome Summary Row */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono text-[10px]">
+                  <div className={`p-2 brutal-border ${
+                    !hasRan ? "bg-[#F4F1E8] text-[#637367]"
+                    : logoStatus === "VERIFIED" ? "bg-[#DDEBDD] border-[#16834A]"
+                    : logoStatus === "OUTDATED" ? "bg-[#F8D7DA] border-[#D94C4C]"
+                    : "bg-[#FFF3CD] border-[#E6A23C]"
+                  }`}>
+                    <span className="font-bold uppercase block">LOGO</span>
+                    <span>{!hasRan ? "NOT RUN" : logoStatus === "VERIFIED" ? "✓ VERIFIED" : logoStatus === "OUTDATED" ? "⚠ OUTDATED" : "REQUIRES REVIEW"}</span>
+                    {logoFinding && logoFinding.explanation?.includes("Hamming distance") && (
+                      <span className="text-[9px] opacity-75 block">{logoFinding.explanation.match(/Hamming distance \d+\/\d+/)?.[0] || ""}</span>
                     )}
                   </div>
-                ))}
-            </div>
-          </div>
+                  <div className={`p-2 brutal-border ${
+                    !hasRan ? "bg-[#F4F1E8] text-[#637367]"
+                    : colourFinding ? "bg-[#FFF3CD] border-[#E6A23C]"
+                    : hasRan ? "bg-[#DDEBDD] border-[#16834A]"
+                    : "bg-[#F4F1E8] text-[#637367]"
+                  }`}>
+                    <span className="font-bold uppercase block">COLOURS</span>
+                    <span>{!hasRan ? "NOT RUN" : colourFinding ? "⚠ OFF-PALETTE" : "✓ MATCHED"}</span>
+                    {colourFinding && (
+                      <span className="text-[9px] opacity-75 block">{colourFinding.excerpt}</span>
+                    )}
+                  </div>
+                  <div className={`p-2 brutal-border ${
+                    !hasRan ? "bg-[#F4F1E8] text-[#637367]"
+                    : altFinding ? "bg-[#FFF3CD] border-[#E6A23C]"
+                    : hasRan ? "bg-[#DDEBDD] border-[#16834A]"
+                    : "bg-[#F4F1E8] text-[#637367]"
+                  }`}>
+                    <span className="font-bold uppercase block">ALT TEXT</span>
+                    <span>{!hasRan ? "NOT RUN" : altFinding ? "⚠ MISSING" : "✓ PRESENT"}</span>
+                  </div>
+                  <div className={`p-2 brutal-border ${
+                    !hasRan ? "bg-[#F4F1E8] text-[#637367]"
+                    : resFinding ? "bg-[#FFF3CD] border-[#E6A23C]"
+                    : hasRan ? "bg-[#DDEBDD] border-[#16834A]"
+                    : "bg-[#F4F1E8] text-[#637367]"
+                  }`}>
+                    <span className="font-bold uppercase block">RESOLUTION</span>
+                    <span>{!hasRan ? "NOT RUN" : resFinding ? "⚠ LOW RES" : "✓ OK"}</span>
+                    {resFinding && (
+                      <span className="text-[9px] opacity-75 block">{resFinding.excerpt}</span>
+                    )}
+                  </div>
+                </div>
+
+                {errFinding && (
+                  <div className="p-2.5 bg-[#FFF3CD] border-2 border-[#E6A23C] font-mono text-[11px] text-[#856404]">
+                    ⚠ {errFinding.explanation}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Image preview */}
+                  {imageSignedUrl && (
+                    <div className="space-y-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={imageSignedUrl}
+                        alt={imageAltText || "Audited image"}
+                        className="w-full max-h-[300px] object-contain brutal-border bg-[#F4F1E8] p-2"
+                      />
+                      {imageAltText && (
+                        <div className="p-2 bg-[#DDEBDD] brutal-border font-mono text-[10px] text-[#17251C]">
+                          <strong>ALT TEXT:</strong> {imageAltText}
+                        </div>
+                      )}
+                      {!imageAltText && (
+                        <div className="p-2 bg-[#F8D7DA] brutal-border font-mono text-[10px] text-[#D94C4C]">
+                          ⚠ Missing alt text — accessibility finding raised
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Visual findings detail */}
+                  <div className="space-y-2">
+                    {visualFindings.length === 0 && (
+                      <div className="p-3 bg-[#F4F1E8] brutal-border font-mono text-[11px] text-[#637367]">
+                        Visual checks have not run yet, or no findings were raised.
+                      </div>
+                    )}
+                    {visualFindings.map((f) => (
+                      <div
+                        key={f.id}
+                        className={`p-2.5 brutal-border text-xs font-mono ${
+                          f.severity === "HIGH"
+                            ? "bg-[#F8D7DA] border-[#D94C4C]"
+                            : f.severity === "MEDIUM"
+                            ? "bg-[#FFF3CD] border-[#E6A23C]"
+                            : f.severity === "INFO"
+                            ? "bg-[#DDEBDD] border-[#16834A]"
+                            : "bg-[#F4F1E8]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 brutal-border ${
+                            f.verification_status === "VERIFIED"
+                              ? "bg-[#B7F28B] text-[#17251C]"
+                              : f.verification_status === "OUTDATED"
+                              ? "bg-[#E6A23C] text-[#17251C]"
+                              : f.verification_status === "REQUIRES_REVIEW"
+                              ? "bg-[#F4F1E8] text-[#637367]"
+                              : "bg-[#F4F1E8] text-[#17251C]"
+                          }`}>
+                            {f.verification_status || f.severity}
+                          </span>
+                          <span className="text-[9px] text-[#637367] uppercase">{f.severity}</span>
+                        </div>
+                        <p className="text-[11px] text-[#17251C]">{f.explanation}</p>
+                        {f.guideline_reference && (
+                          <p className="text-[10px] text-[#637367] mt-1">📖 {f.guideline_reference}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           <p className="font-mono text-[10px] text-[#637367] italic">
             Compared with approved assets; not a forensic authenticity check.
