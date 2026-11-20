@@ -12,6 +12,8 @@ import {
   ArrowRight,
   AlertCircle,
   RefreshCw,
+  Image as ImageIcon,
+  X,
 } from "lucide-react";
 
 interface SamplePreset {
@@ -124,6 +126,13 @@ export function ContentStudioForm({ isDemoMode = false }: { isDemoMode?: boolean
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [formError, setFormError] = React.useState<string | null>(null);
 
+  // Image attachment state
+  const [imageFile, setImageFile] = React.useState<File | null>(null);
+  const [imagePreview, setImagePreview] = React.useState<string | null>(null);
+  const [imageAltText, setImageAltText] = React.useState("");
+  const [imageInputError, setImageInputError] = React.useState<string | null>(null);
+  const imageInputRef = React.useRef<HTMLInputElement | null>(null);
+
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const wordCount = body.trim() ? body.trim().split(/\s+/).length : 0;
@@ -136,6 +145,34 @@ export function ContentStudioForm({ isDemoMode = false }: { isDemoMode?: boolean
     setDepartment(sample.department);
     setBody(sample.body);
     setFormError(null);
+  }
+
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    setImageInputError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      setImageInputError("Only PNG, JPG and WebP images are accepted.");
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setImageInputError(`Image is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 5 MB.`);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
+    setImageFile(file);
+    const url = URL.createObjectURL(file);
+    setImagePreview(url);
+  }
+
+  function removeImage() {
+    setImageFile(null);
+    setImagePreview(null);
+    setImageAltText("");
+    setImageInputError(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -196,6 +233,10 @@ export function ContentStudioForm({ isDemoMode = false }: { isDemoMode?: boolean
     formData.append("objective", objective);
     formData.append("body", body);
     formData.append("mode", auditMode);
+    if (imageFile) {
+      formData.append("image", imageFile);
+      formData.append("imageAltText", imageAltText);
+    }
 
     try {
       const result = await createAuditSubmission(formData);
@@ -488,6 +529,92 @@ export function ContentStudioForm({ isDemoMode = false }: { isDemoMode?: boolean
           <span>{formError}</span>
         </div>
       )}
+
+      {/* 5. Image Attachment (Optional — triggers Visual Consistency stage) */}
+      <div className="brutal-panel bg-white p-5 space-y-4">
+        <div className="flex items-center justify-between border-b-2 border-[#253C2B] pb-3">
+          <div className="flex items-center space-x-2">
+            <ImageIcon className="w-4 h-4 text-[#16834A]" />
+            <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-[#17251C]">
+              IMAGE ATTACHMENT (Optional)
+            </h3>
+          </div>
+          <span className="font-mono text-[10px] text-[#637367]">PNG · JPG · WebP · max 5 MB</span>
+        </div>
+
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/jpg,image/webp"
+          onChange={handleImageSelect}
+          className="hidden"
+        />
+
+        {!imageFile ? (
+          <button
+            type="button"
+            onClick={() => imageInputRef.current?.click()}
+            className="w-full border-2 border-dashed border-[#253C2B]/30 hover:border-[#16834A] bg-[#F4F1E8] hover:bg-[#DDEBDD] p-6 text-center transition-colors cursor-pointer"
+          >
+            <ImageIcon className="w-6 h-6 text-[#637367] mx-auto mb-2" />
+            <p className="font-mono text-xs text-[#637367]">
+              Click to attach an image — adds <strong>VISUAL CONSISTENCY</strong> stage to the audit
+            </p>
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-start space-x-3 p-3 bg-[#F4F1E8] brutal-border">
+              {imagePreview && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={imagePreview}
+                  alt="Preview"
+                  className="w-20 h-20 object-cover brutal-border shrink-0"
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="font-mono text-xs font-bold text-[#17251C] truncate">{imageFile.name}</p>
+                <p className="font-mono text-[10px] text-[#637367]">
+                  {(imageFile.size / 1024).toFixed(0)} KB · {imageFile.type}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={removeImage}
+                className="text-[#D94C4C] hover:text-[#A33]"
+                title="Remove image"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div>
+              <label className="block font-mono text-xs font-bold uppercase text-[#17251C] mb-1">
+                Alt Text <span className="text-[#D94C4C]">*</span>
+              </label>
+              <input
+                type="text"
+                value={imageAltText}
+                onChange={(e) => setImageAltText(e.target.value)}
+                placeholder="Describe the image for screen readers and accessibility compliance"
+                className="w-full px-3 py-2 bg-white brutal-border font-mono text-xs text-[#17251C] focus:outline-none focus:ring-2 focus:ring-[#16834A]"
+              />
+            </div>
+          </div>
+        )}
+
+        {imageInputError && (
+          <div className="p-2 bg-[#F4F1E8] border-2 border-[#D94C4C] text-[#D94C4C] text-xs font-mono flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{imageInputError}</span>
+          </div>
+        )}
+
+        <p className="font-mono text-[10px] text-[#637367]">
+          Attaching an image adds the <strong>VISUAL CONSISTENCY</strong> stage: logo verification (dHash),
+          colour palette compliance (ΔE), resolution and aspect-ratio checks.
+          AI is not used for this stage.
+        </p>
+      </div>
 
       {/* 5. Submit CTA Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">

@@ -75,6 +75,19 @@ export function calculateAuditScores(
     dimensionScores[finding.category] = Math.max(0, dimensionScores[finding.category] - deduction);
   }
 
+  // Visual dimension: "REQUIRES REVIEW is not counted as a pass"
+  if (checkedDimensions.includes("visual")) {
+    const hasRequiresReview = findings.some(
+      (f) =>
+        !f.isResolved &&
+        f.category === "visual" &&
+        f.verificationStatus === "REQUIRES_REVIEW"
+    );
+    if (hasRequiresReview) {
+      dimensionScores.visual = Math.min(dimensionScores.visual, 82);
+    }
+  }
+
   // Renormalize weights across checked dimensions only
   let totalCheckedWeight = 0;
   for (const dim of checkedDimensions) {

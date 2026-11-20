@@ -99,6 +99,8 @@ interface AuditReportViewProps {
     body: string;
     version_no: number;
   };
+  imageSignedUrl?: string | null;
+  imageAltText?: string | null;
   initialStages: AuditStage[];
   initialFindings: AuditFinding[];
 }
@@ -109,6 +111,8 @@ export function AuditReportView({
   audit,
   contentItem,
   contentVersion,
+  imageSignedUrl,
+  imageAltText,
   initialStages,
   initialFindings,
 }: AuditReportViewProps) {
@@ -795,10 +799,23 @@ export function AuditReportView({
                   <span className="text-[10px] font-bold text-[#637367] block uppercase">
                     VISUAL
                   </span>
-                  <span className="text-sm font-bold text-[#637367] mt-2 block">
-                    NOT CHECKED
-                  </span>
-                  <span className="text-[9px] text-[#637367] block mt-0.5">Excluded from total</span>
+                  {audit.scores?.visual != null ? (
+                    <>
+                      <span className={`text-2xl font-black mt-1 block ${
+                        (audit.scores.visual ?? 0) >= 85 ? "text-[#16834A]" : "text-[#D94C4C]"
+                      }`}>
+                        {audit.scores.visual}/100
+                      </span>
+                      <span className="text-[9px] text-[#637367] block mt-0.5">Brand Consistency</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-sm font-bold text-[#637367] mt-2 block">
+                        NOT CHECKED
+                      </span>
+                      <span className="text-[9px] text-[#637367] block mt-0.5">Excluded from total</span>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -814,7 +831,7 @@ export function AuditReportView({
               <div className="flex items-center space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-[#16834A]" />
                 <h3 className="font-bold text-xs uppercase tracking-wider text-[#17251C]">
-                  VERIFICATION PIPELINE AUDIT STAGES (7 STAGES)
+                  VERIFICATION PIPELINE AUDIT STAGES ({stages.length} STAGES)
                 </h3>
               </div>
               <span className="text-[10px] text-[#637367]">
@@ -927,7 +944,7 @@ export function AuditReportView({
 
                 <div className="flex items-center space-x-1.5 overflow-x-auto">
                   <span className="text-[#637367] font-bold text-[10px] uppercase pr-1">DIMENSION:</span>
-                  {["ALL", "claims", "voice", "terminology", "accessibility"].map((cat) => (
+                  {["ALL", "claims", "voice", "terminology", "accessibility", "visual"].map((cat) => (
                     <button
                       key={cat}
                       onClick={() => setSelectedCategory(cat)}
@@ -1215,6 +1232,83 @@ export function AuditReportView({
             </div>
           </div>
         </>
+      )}
+
+      {/* VISUAL CONSISTENCY CARD — shown when image was audited */}
+      {imageSignedUrl && audit.checked_dimensions?.includes("visual") && (
+        <div className="brutal-panel bg-white p-5 space-y-4">
+          <div className="flex items-center justify-between border-b-2 border-[#253C2B] pb-3">
+            <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-[#17251C]">
+              VISUAL CONSISTENCY ANALYSIS
+            </h3>
+            <span className="font-mono text-[10px] text-[#637367]">AI: not used</span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Image preview */}
+            <div className="space-y-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imageSignedUrl}
+                alt={imageAltText || "Audited image"}
+                className="w-full max-h-[300px] object-contain brutal-border bg-[#F4F1E8] p-2"
+              />
+              {imageAltText && (
+                <div className="p-2 bg-[#DDEBDD] brutal-border font-mono text-[10px] text-[#17251C]">
+                  <strong>ALT TEXT:</strong> {imageAltText}
+                </div>
+              )}
+              {!imageAltText && (
+                <div className="p-2 bg-[#F8D7DA] brutal-border font-mono text-[10px] text-[#D94C4C]">
+                  ⚠ Missing alt text — accessibility finding raised
+                </div>
+              )}
+            </div>
+
+            {/* Visual findings summary */}
+            <div className="space-y-2">
+              {findings
+                .filter((f) => f.category === "visual")
+                .map((f) => (
+                  <div
+                    key={f.id}
+                    className={`p-2.5 brutal-border text-xs font-mono ${
+                      f.severity === "HIGH"
+                        ? "bg-[#F8D7DA] border-[#D94C4C]"
+                        : f.severity === "MEDIUM"
+                        ? "bg-[#FFF3CD] border-[#E6A23C]"
+                        : f.severity === "INFO"
+                        ? "bg-[#DDEBDD] border-[#16834A]"
+                        : "bg-[#F4F1E8]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-[9px] font-extrabold px-1.5 py-0.5 brutal-border ${
+                        f.verification_status === "VERIFIED"
+                          ? "bg-[#B7F28B] text-[#17251C]"
+                          : f.verification_status === "OUTDATED"
+                          ? "bg-[#E6A23C] text-[#17251C]"
+                          : f.verification_status === "REQUIRES_REVIEW"
+                          ? "bg-[#F4F1E8] text-[#637367]"
+                          : "bg-[#F4F1E8] text-[#17251C]"
+                      }`}>
+                        {f.verification_status || f.severity}
+                      </span>
+                      <span className="text-[9px] text-[#637367] uppercase">{f.severity}</span>
+                    </div>
+                    <p className="text-[11px] text-[#17251C]">{f.explanation}</p>
+                    {f.guideline_reference && (
+                      <p className="text-[10px] text-[#637367] mt-1">📖 {f.guideline_reference}</p>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          <p className="font-mono text-[10px] text-[#637367] italic">
+            Compared with approved assets; not a forensic authenticity check.
+          </p>
+        </div>
       )}
 
       {/* MODAL: WORD DIFF COMPARISON */}

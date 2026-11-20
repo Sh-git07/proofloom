@@ -28,7 +28,7 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
       scores,
       checked_dimensions,
       created_at,
-      content_versions(body, version_no),
+      content_versions(body, version_no, image_storage_path, image_alt_text),
       content_items(
         id,
         title,
@@ -77,9 +77,20 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
   const version = audit.content_versions as unknown as {
     body: string;
     version_no: number;
+    image_storage_path?: string | null;
+    image_alt_text?: string | null;
   };
 
   const creatorName = item?.profiles?.full_name || item?.profiles?.email || "Platform Creator";
+
+  // Generate signed URL for image preview if the content has an image
+  let imageSignedUrl: string | null = null;
+  if (version?.image_storage_path) {
+    const { data: signedData } = await supabase.storage
+      .from("content-uploads")
+      .createSignedUrl(version.image_storage_path, 3600); // 1 hour
+    imageSignedUrl = signedData?.signedUrl || null;
+  }
 
   return (
     <AuditReportView
@@ -117,6 +128,8 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
         body: version?.body || "",
         version_no: version?.version_no || 1,
       }}
+      imageSignedUrl={imageSignedUrl}
+      imageAltText={version?.image_alt_text || null}
       initialStages={(stages || []).map((s) => ({
         id: s.id,
         stage_number: s.stage_number,
@@ -126,7 +139,7 @@ export default async function AuditReportPage({ params }: AuditReportProps) {
         completed_at: s.finished_at,
         error_message: s.error,
         detail: s.detail,
-        findings_count: calculateStageFindingsCount(s.stage_number, findings || []),
+        findings_count: calculateStageFindingsCount(s.stage_number, findings || [], s.stage_key || s.stage_name),
       }))}
       initialFindings={(findings || []).map((f) => ({
         id: f.id,

@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import * as dotenv from "dotenv";
+import sharp from "sharp";
+import { computeDHash } from "../src/lib/visual/dhash";
 
 dotenv.config({ path: ".env.local" });
 
@@ -1073,6 +1075,76 @@ async function seed() {
       is_demo: true,
     });
   }
+
+  // 13b. Seed Visual Brand Assets (Current Logo, Old Superseded Logo, Palette) as PNGs
+  console.log("Seeding visual brand assets (logos, palette, perceptual hashes)...");
+
+  // 1. Current Logo PNG
+  const currentLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80"><rect width="240" height="80" fill="#16834A" /><rect x="12" y="12" width="56" height="56" fill="#B7F28B" rx="4"/><text x="40" y="50" font-family="sans-serif" font-size="28" font-weight="900" fill="#17251C" text-anchor="middle">PL</text><text x="80" y="42" font-family="sans-serif" font-size="20" font-weight="800" fill="#F4F1E8" letter-spacing="1.5">NOVA</text><text x="80" y="60" font-family="sans-serif" font-size="11" font-weight="700" fill="#B7F28B" letter-spacing="2">CREATIVE</text></svg>`;
+  const currentLogoPng = await sharp(Buffer.from(currentLogoSvg)).png().toBuffer();
+  const currentLogoDHash = await computeDHash(currentLogoPng);
+
+  await supabase.storage
+    .from("brand-assets")
+    .upload(`${novaId}/current-logo.png`, currentLogoPng, { contentType: "image/png", upsert: true });
+
+  await supabase.from("approved_assets").insert({
+    organisation_id: novaId,
+    name: "Nova Creative Primary Mark (Current)",
+    asset_type: "logo",
+    status: "current",
+    perceptual_hash: currentLogoDHash,
+    colour_palette: ["#16834A", "#B7F28B", "#17251C", "#F4F1E8"],
+    storage_path: `brand-assets/${novaId}/current-logo.png`,
+    file_size_bytes: currentLogoPng.length,
+    mime_type: "image/png",
+    metadata: { description: "Active official primary logo emblem." },
+    is_demo: true,
+  });
+
+  // 2. Old Superseded Logo PNG
+  const oldLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80"><rect width="240" height="80" fill="#2E2E2E" /><circle cx="40" cy="40" r="28" fill="#888888" /><text x="40" y="48" font-family="serif" font-size="24" font-weight="700" fill="#FFFFFF" text-anchor="middle">NC</text><text x="82" y="42" font-family="serif" font-size="18" font-weight="600" fill="#CCCCCC">NOVA CORP</text><text x="82" y="58" font-family="sans-serif" font-size="9" fill="#999999">LEGACY 2021</text></svg>`;
+  const oldLogoPng = await sharp(Buffer.from(oldLogoSvg)).png().toBuffer();
+  const oldLogoDHash = await computeDHash(oldLogoPng);
+
+  await supabase.storage
+    .from("brand-assets")
+    .upload(`${novaId}/old-logo.png`, oldLogoPng, { contentType: "image/png", upsert: true });
+
+  await supabase.from("approved_assets").insert({
+    organisation_id: novaId,
+    name: "Nova Corp Legacy Mark (2021)",
+    asset_type: "logo",
+    status: "superseded",
+    perceptual_hash: oldLogoDHash,
+    colour_palette: ["#2E2E2E", "#888888", "#FFFFFF", "#CCCCCC"],
+    storage_path: `brand-assets/${novaId}/old-logo.png`,
+    file_size_bytes: oldLogoPng.length,
+    mime_type: "image/png",
+    metadata: { description: "Superseded 2021 corporate mark. Disallowed in modern copy." },
+    is_demo: true,
+  });
+
+  // 3. Approved Brand Palette Asset
+  const paletteSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100" viewBox="0 0 400 100"><rect x="0" y="0" width="100" height="100" fill="#16834A"/><rect x="100" y="0" width="100" height="100" fill="#B7F28B"/><rect x="200" y="0" width="100" height="100" fill="#17251C"/><rect x="300" y="0" width="100" height="100" fill="#F4F1E8"/></svg>`;
+  const palettePng = await sharp(Buffer.from(paletteSvg)).png().toBuffer();
+
+  await supabase.storage
+    .from("brand-assets")
+    .upload(`${novaId}/palette-swatch.png`, palettePng, { contentType: "image/png", upsert: true });
+
+  await supabase.from("approved_assets").insert({
+    organisation_id: novaId,
+    name: "Official Core Brand Palette",
+    asset_type: "palette",
+    status: "current",
+    colour_palette: ["#16834A", "#B7F28B", "#17251C", "#F4F1E8"],
+    storage_path: `brand-assets/${novaId}/palette-swatch.png`,
+    file_size_bytes: palettePng.length,
+    mime_type: "image/png",
+    metadata: { description: "Approved four-color core brand identity token set." },
+    is_demo: true,
+  });
 
   // 12. Seeded Content Items & Audits (Scenarios A, B, C, D)
   console.log("Seeding flagship scenarios A, B, C, D...");

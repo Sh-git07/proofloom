@@ -13,7 +13,8 @@ export type VerificationStatus =
   | "CONTRADICTED"
   | "OUTDATED"
   | "HUMAN_VERIFICATION_REQUIRED"
-  | "UNSUPPORTED";
+  | "UNSUPPORTED"
+  | "REQUIRES_REVIEW";
 
 export interface AuditFindingRecord {
   id: string; // FIND-001, FIND-002, etc.

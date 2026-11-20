@@ -73,12 +73,38 @@ export function extractStageOutcome(detail?: string | null): string {
 
 /**
  * Computes the count of findings created by a specific stage.
- * Specifically, the voice stage counts all voice findings (both AI and rule findings).
+ * Specifically, the voice stage counts all voice findings (both AI and rule findings),
+ * and the visual stage counts visual consistency findings.
  */
 export function calculateStageFindingsCount(
   stageNumber: number,
-  findings: Array<{ category: string }>
+  findings: Array<{ category: string }>,
+  stageKey?: string
 ): number {
+  if (stageKey) {
+    if (stageKey.includes("CONTENT INGESTION") || stageKey.includes("CLAIM EXTRACTION")) return 0;
+    if (stageKey.includes("SOURCE VERIFICATION")) {
+      return findings.filter(
+        (f) => f.category === "claims" || f.category === "claim_reliability"
+      ).length;
+    }
+    if (stageKey.includes("VOICE")) {
+      return findings.filter((f) => f.category === "voice").length;
+    }
+    if (stageKey.includes("TERMINOLOGY")) {
+      return findings.filter((f) => f.category === "terminology").length;
+    }
+    if (stageKey.includes("ACCESSIBILITY")) {
+      return findings.filter((f) => f.category === "accessibility").length;
+    }
+    if (stageKey.includes("VISUAL")) {
+      return findings.filter((f) => f.category === "visual").length;
+    }
+    if (stageKey.includes("FINAL")) {
+      return findings.length;
+    }
+  }
+
   switch (stageNumber) {
     case 1:
       return 0;
@@ -96,6 +122,13 @@ export function calculateStageFindingsCount(
     case 6:
       return findings.filter((f) => f.category === "accessibility").length;
     case 7:
+      // In 8-stage pipeline, stage 7 is visual consistency
+      const visualFindings = findings.filter((f) => f.category === "visual");
+      if (visualFindings.length > 0) {
+        return visualFindings.length;
+      }
+      return findings.length;
+    case 8:
       return findings.length;
     default:
       return 0;

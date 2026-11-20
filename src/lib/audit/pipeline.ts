@@ -12,13 +12,14 @@ import {
 } from "./brand-voice";
 import { checkTerminologyDeterministic, DatabaseTermRule } from "./terminology";
 import { checkAccessibilityDeterministic } from "./accessibility";
+import { checkVisualConsistency } from "@/lib/visual/checker";
 import { calculateAuditScores } from "./scoring";
 import { AuditFindingRecord, AuditSeverity, AuditDimension } from "./types";
 import { generateStructured } from "@/lib/ai";
 import { deriveEngineModeLabel, AIStageOutcome } from "./labelling";
 import { z } from "zod";
 
-export const STAGE_NAMES = [
+export const TEXT_STAGE_NAMES = [
   "[01] CONTENT INGESTION",
   "[02] CLAIM EXTRACTION",
   "[03] SOURCE VERIFICATION",
@@ -28,21 +29,40 @@ export const STAGE_NAMES = [
   "[07] FINAL RISK ASSESSMENT",
 ] as const;
 
+export const VISUAL_STAGE_NAMES = [
+  "[01] CONTENT INGESTION",
+  "[02] CLAIM EXTRACTION",
+  "[03] SOURCE VERIFICATION",
+  "[04] BRAND VOICE ANALYSIS",
+  "[05] TERMINOLOGY INSPECTION",
+  "[06] ACCESSIBILITY CHECK",
+  "[07] VISUAL CONSISTENCY",
+  "[08] FINAL RISK ASSESSMENT",
+] as const;
+
+export const STAGE_NAMES = TEXT_STAGE_NAMES;
+
 /**
- * Initializes an audit and all 7 stages in QUEUED state within Supabase.
+ * Initializes an audit and all stages in QUEUED state within Supabase.
  */
 export async function initializeAudit({
   organisationId,
   contentItemId,
   contentVersionId,
   mode = "live_ai",
+  hasImage = false,
 }: {
   organisationId: string;
   contentItemId: string;
   contentVersionId: string;
   mode?: "live_ai" | "demo";
+  hasImage?: boolean;
 }) {
   const supabase = createAdminClient();
+
+  const checkedDimensions: AuditDimension[] = hasImage
+    ? ["voice", "claims", "terminology", "accessibility", "visual"]
+    : ["voice", "claims", "terminology", "accessibility"];
 
   // Create audit record
   const { data: audit, error: auditErr } = await supabase
@@ -53,7 +73,7 @@ export async function initializeAudit({
       content_version_id: contentVersionId,
       status: "QUEUED",
       mode,
-      checked_dimensions: ["voice", "claims", "terminology", "accessibility"],
+      checked_dimensions: checkedDimensions,
     })
     .select("id")
     .single();
@@ -62,8 +82,9 @@ export async function initializeAudit({
     throw new Error(`Failed to create audit row: ${auditErr?.message || "Unknown error"}`);
   }
 
-  // Create all 7 audit_stages rows with QUEUED status
-  const stageRows = STAGE_NAMES.map((name, idx) => ({
+  // Create audit_stages rows with QUEUED status
+  const stageList = hasImage ? VISUAL_STAGE_NAMES : TEXT_STAGE_NAMES;
+  const stageRows = stageList.map((name, idx) => ({
     audit_id: audit.id,
     stage_number: idx + 1,
     stage_key: name,
@@ -86,7 +107,7 @@ export async function initializeAudit({
 export async function executeNextStage(auditId: string) {
   const supabase = createAdminClient();
 
-  // 1. Fetch audit details
+  // 1. Fetch audit details (include checked_dimensions and content_version image fields)
   const { data: audit, error: auditErr } = await supabase
     .from("audits")
     .select(`
@@ -96,7 +117,8 @@ export async function executeNextStage(auditId: string) {
       content_version_id,
       mode,
       status,
-      content_versions(body),
+      checked_dimensions,
+      content_versions(body, image_storage_path, image_alt_text),
       content_items(title, content_type, platform, department)
     `)
     .eq("id", auditId)
@@ -128,7 +150,20 @@ export async function executeNextStage(auditId: string) {
 
   const stageId = nextStage.id;
   const stageNum = nextStage.stage_number;
-  const contentBody = (audit.content_versions as unknown as { body: string })?.body || "";
+  const stageKey: string = nextStage.stage_key || nextStage.stage_name || "";
+  const totalStages = stages.length;
+  const isFinalStage = stageNum === totalStages || stageKey.includes("FINAL RISK ASSESSMENT");
+  const isVisualStage = stageKey.includes("VISUAL CONSISTENCY");
+  const checkedDimensions = (audit.checked_dimensions as AuditDimension[]) || [
+    "voice", "claims", "terminology", "accessibility",
+  ];
+
+  const contentVersionRow = audit.content_versions as unknown as {
+    body: string;
+    image_storage_path?: string | null;
+    image_alt_text?: string | null;
+  };
+  const contentBody = contentVersionRow?.body || "";
   const orgId = audit.organisation_id;
   const mode = audit.mode as "live_ai" | "demo";
 
@@ -148,8 +183,181 @@ export async function executeNextStage(auditId: string) {
     let findingsCount = 0;
     let stageDetail = "";
 
-    // Execute stage-specific logic
-    switch (stageNum) {
+    // Execute stage-specific logic — route by stageKey for 7 or 8-stage pipelines
+    if (isVisualStage) {
+      // ============================================================
+      // [07] VISUAL CONSISTENCY (8-stage pipeline with image)
+      // ============================================================
+      const imageStoragePath = contentVersionRow?.image_storage_path;
+      const imageAltText = contentVersionRow?.image_alt_text;
+
+      if (!imageStoragePath) {
+        stageDetail = "AI: not used • No image attachment found; stage skipped";
+        findingsCount = 0;
+      } else {
+        const { data: imageData, error: storageErr } = await supabase.storage
+          .from("content-uploads")
+          .download(imageStoragePath);
+
+        if (storageErr || !imageData) {
+          stageDetail = `AI: not used • Image download failed: ${storageErr?.message || "Unknown"}`;
+          findingsCount = 0;
+        } else {
+          const imageBuffer = Buffer.from(await imageData.arrayBuffer());
+
+          const { data: rawAssets } = await supabase
+            .from("approved_assets")
+            .select("id, name, asset_type, status, perceptual_hash, storage_path, colour_palette")
+            .eq("organisation_id", orgId)
+            .in("asset_type", ["logo", "palette", "color_palette"]);
+
+          const approvedLogos = (rawAssets || []).filter(
+            (a) => a.asset_type === "logo" && a.perceptual_hash
+          );
+          const paletteAsset = (rawAssets || []).find(
+            (a) => a.asset_type === "palette" || a.asset_type === "color_palette"
+          );
+          const approvedPaletteHexes: string[] | undefined = paletteAsset?.colour_palette
+            ? (paletteAsset.colour_palette as string[])
+            : undefined;
+
+          const itemData2 = audit.content_items as unknown as { platform?: string } | null;
+          const visualPlatform = itemData2?.platform || "LinkedIn";
+
+          const visualResult = await checkVisualConsistency({
+            imageBuffer,
+            imageAltText,
+            platform: visualPlatform,
+            auditId,
+            organisationId: orgId,
+            approvedLogos,
+            approvedPaletteHexes,
+          });
+
+          if (visualResult.findings.length > 0) {
+            const rows = visualResult.findings.map((f, idx) => ({
+              finding_code: `FND-VIS-${idx + 1}`,
+              audit_id: auditId,
+              organisation_id: orgId,
+              category: "visual",
+              severity: f.severity,
+              excerpt: f.excerpt,
+              start_offset: f.startIndex,
+              end_offset: f.endIndex,
+              explanation: f.explanation,
+              guideline_reference: f.guidelineReference,
+              recommended_action: f.recommendedAction,
+              suggested_replacement: f.suggestedReplacement,
+              verification_status: f.verificationStatus || null,
+              evidence_source_id: f.evidenceSourceId || null,
+              confidence: (f.confidence as "high" | "medium" | "low") || "high",
+              confidence_note: "Rule",
+              is_resolved: false,
+            }));
+            await supabase.from("audit_findings").insert(rows);
+          }
+
+          findingsCount = visualResult.findings.length;
+          stageDetail = `AI: not used • Visual consistency checks complete: ${findingsCount} findings (logo: ${visualResult.logoStatus})`;
+        }
+      }
+    } else if (isFinalStage) {
+      // ============================================================
+      // FINAL RISK ASSESSMENT (stage 7 in text-only, stage 8 with image)
+      // ============================================================
+      const { data: allFindings } = await supabase
+        .from("audit_findings")
+        .select("*")
+        .eq("audit_id", auditId);
+
+      const findingRecords: AuditFindingRecord[] = (allFindings || []).map((f) => ({
+        id: f.id,
+        category: (f.category === "claim_reliability" ? "claims" : f.category) as AuditDimension,
+        severity: f.severity as AuditSeverity,
+        excerpt: f.excerpt,
+        startIndex: f.start_offset ?? 0,
+        endIndex: f.end_offset ?? 0,
+        explanation: f.explanation,
+        guidelineReference: f.guideline_reference,
+        evidenceSourceId: f.evidence_source_id,
+        verificationStatus: f.verification_status,
+        recommendedAction: f.recommended_action,
+        suggestedReplacement: f.suggested_replacement,
+        confidence: f.confidence as "high" | "medium" | "low",
+        isResolved: f.is_resolved,
+      }));
+
+      const scores = calculateAuditScores(findingRecords, checkedDimensions);
+
+      const hasCritical = findingRecords.some((f) => f.severity === "CRITICAL" && !f.isResolved);
+      const finalStatus = hasCritical ? "REVISION_REQUIRED" : "COMPLETED";
+
+      const { data: priorStages } = await supabase
+        .from("audit_stages")
+        .select("stage_number, detail, error")
+        .eq("audit_id", auditId);
+
+      const engineModeLabel = deriveEngineModeLabel(
+        mode,
+        (priorStages || []).map((s) => ({
+          stage_number: s.stage_number,
+          detail: s.detail,
+        }))
+      );
+
+      const hasAIFailure =
+        mode === "live_ai" &&
+        (priorStages || []).some(
+          (s) => (s.detail && s.detail.includes("AI: failed, rules only")) || s.error
+        );
+
+      stageDetail = `AI: not used • Final score: ${scores.overall}/100`;
+
+      // Update audit record with final scores
+      await supabase
+        .from("audits")
+        .update({
+          overall_score: scores.overall,
+          scores: {
+            voice: scores.voice,
+            claims: scores.claims,
+            terminology: scores.terminology,
+            accessibility: scores.accessibility,
+            visual: scores.visual,
+            ai_warning: hasAIFailure,
+            engine_mode: engineModeLabel,
+          },
+          status: "COMPLETED",
+        })
+        .eq("id", auditId);
+
+      // Update content item status
+      await supabase
+        .from("content_items")
+        .update({
+          status: finalStatus === "REVISION_REQUIRED" ? "REVISION_REQUIRED" : "READY_FOR_REVIEW",
+        })
+        .eq("id", audit.content_item_id);
+
+      // Write immutable activity log
+      await supabase.from("activity_logs").insert({
+        organisation_id: orgId,
+        action: "AUDIT_COMPLETED",
+        target_type: "audit",
+        target_id: auditId,
+        details: {
+          score: scores.overall,
+          criticalCount: findingRecords.filter((f) => f.severity === "CRITICAL").length,
+          findingsTotal: findingRecords.length,
+        },
+      });
+
+      findingsCount = findingRecords.length;
+    } else {
+      // ============================================================
+      // Text pipeline stages — dispatched by stageNum
+      // ============================================================
+      switch (stageNum) {
       case 1: {
         // [01] CONTENT INGESTION: Sanitize and compute basic metrics
         findingsCount = 0;
@@ -645,13 +853,14 @@ export async function executeNextStage(auditId: string) {
       }
 
       case 7: {
-        // [07] FINAL RISK ASSESSMENT & SCORING
-        const { data: allFindings } = await supabase
+        // [07] FINAL RISK ASSESSMENT & SCORING (text-only 7-stage pipeline)
+        // This case is only reached in text-only pipelines; 8-stage routes through isFinalStage above.
+        const { data: allFindingsRaw } = await supabase
           .from("audit_findings")
           .select("*")
           .eq("audit_id", auditId);
 
-        const findingRecords: AuditFindingRecord[] = (allFindings || []).map((f) => ({
+        const findingRecords: AuditFindingRecord[] = (allFindingsRaw || []).map((f) => ({
           id: f.id,
           category: (f.category === "claim_reliability" ? "claims" : f.category) as AuditDimension,
           severity: f.severity as AuditSeverity,
@@ -695,7 +904,6 @@ export async function executeNextStage(auditId: string) {
 
         stageDetail = `AI: not used • Final score: ${scores.overall}/100`;
 
-        // Update audit record with final scores
         await supabase
           .from("audits")
           .update({
@@ -713,7 +921,6 @@ export async function executeNextStage(auditId: string) {
           })
           .eq("id", auditId);
 
-        // Update content item status
         await supabase
           .from("content_items")
           .update({
@@ -721,7 +928,6 @@ export async function executeNextStage(auditId: string) {
           })
           .eq("id", audit.content_item_id);
 
-        // Write immutable activity log
         await supabase.from("activity_logs").insert({
           organisation_id: orgId,
           action: "AUDIT_COMPLETED",
@@ -737,7 +943,8 @@ export async function executeNextStage(auditId: string) {
         findingsCount = findingRecords.length;
         break;
       }
-    }
+      } // end switch (text-only stages)
+    } // end else (text pipeline)
 
     // Mark stage as COMPLETED
     await supabase
@@ -750,7 +957,7 @@ export async function executeNextStage(auditId: string) {
       .eq("id", stageId);
 
     let finalAuditFindings: any[] | undefined;
-    if (stageNum === 7) {
+    if (isFinalStage) {
       const { data: dbFindings } = await supabase
         .from("audit_findings")
         .select("*")
@@ -786,7 +993,7 @@ export async function executeNextStage(auditId: string) {
     }
 
     return {
-      completed: stageNum === 7,
+      completed: isFinalStage,
       findings: finalAuditFindings,
       stage: {
         number: stageNum,
