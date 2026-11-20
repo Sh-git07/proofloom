@@ -7,6 +7,7 @@ import { IdTag } from "@/components/ui/id-tag";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { recordApprovalAction, assignReviewerAction, ApprovalDecisionType } from "@/app/actions/governance";
 import { decideChallengeAction, ChallengeDecisionType } from "@/app/actions/challenges";
+import { runImpactCheckAction, resolveImpactAction } from "@/app/actions/knowledge";
 import {
   CheckSquare,
   Scale,
@@ -16,7 +17,22 @@ import {
   RefreshCw,
   FileText,
   UserCheck,
+  Zap,
 } from "lucide-react";
+
+export interface ImpactItem {
+  id: string;
+  fact_id: string;
+  content_item_id: string;
+  change_type: string;
+  old_value: string | null;
+  new_value: string | null;
+  reason: string | null;
+  status: "OPEN" | "RESOLVED";
+  created_at: string;
+  content_item?: { id: string; title: string; status: string } | null;
+  fact?: { id: string; name: string } | null;
+}
 
 export interface ReviewQueueItem {
   id: string;
@@ -86,16 +102,21 @@ export function ReviewQueueWorkbench({
   reviewers,
   userRole,
   initialSelectedItemId,
+  impacts: initialImpacts = [],
 }: {
   queueItems: ReviewQueueItem[];
   challenges: ChallengeItem[];
   reviewers: ReviewerOption[];
   userRole: string;
   initialSelectedItemId?: string;
+  impacts?: ImpactItem[];
 }) {
   const [items, setItems] = React.useState<ReviewQueueItem[]>(queueItems);
   const [challengesList, setChallengesList] = React.useState<ChallengeItem[]>(challenges);
-  const [activeTab, setActiveTab] = React.useState<"queue" | "court">("queue");
+  const [impactsList, setImpactsList] = React.useState<ImpactItem[]>(initialImpacts);
+  const [activeTab, setActiveTab] = React.useState<"queue" | "court" | "impacts">("queue");
+  const [isRunningImpactCheck, setIsRunningImpactCheck] = React.useState(false);
+  const [impactCheckMsg, setImpactCheckMsg] = React.useState<string | null>(null);
 
   // Selection
   const [selectedItemId, setSelectedItemId] = React.useState<string>(
@@ -123,6 +144,30 @@ export function ReviewQueueWorkbench({
   const unresolvedCriticalCount = selectedItem?.latest_audit?.critical_findings_count || 0;
   const isAdmin = userRole === "admin";
   const canDecide = userRole === "admin" || userRole === "brand_manager" || userRole === "reviewer";
+  const canManage = userRole === "admin" || userRole === "brand_manager";
+
+  const openImpacts = impactsList.filter((i) => i.status === "OPEN");
+
+  async function handleRunImpactCheck() {
+    setIsRunningImpactCheck(true);
+    setImpactCheckMsg(null);
+    try {
+      const res = await runImpactCheckAction();
+      setImpactCheckMsg(res.count > 0 ? `${res.count} new impact(s) flagged.` : "No new expired-fact impacts found.");
+      if (res.count > 0) window.location.reload();
+    } catch {
+      setImpactCheckMsg("Impact check failed.");
+    } finally {
+      setIsRunningImpactCheck(false);
+    }
+  }
+
+  async function handleResolveImpact(impactId: string) {
+    const res = await resolveImpactAction(impactId);
+    if (res.success) {
+      setImpactsList((prev) => prev.map((i) => i.id === impactId ? { ...i, status: "RESOLVED" } : i));
+    }
+  }
 
   async function handleDecisionSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -270,6 +315,22 @@ export function ReviewQueueWorkbench({
           <span>02 BRAND MEMORY COURT QUEUE</span>
           <span className="px-1.5 py-0.2 bg-white text-[#17251C] rounded-[1px] font-extrabold text-[10px]">
             {challengesList.filter((c) => c.status === "PENDING").length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("impacts")}
+          className={`px-4 py-2 brutal-border font-bold uppercase transition-all flex items-center space-x-2 cursor-pointer ${
+            activeTab === "impacts"
+              ? "bg-[#16834A] text-white brutal-shadow-sm translate-x-[-1px] translate-y-[-1px]"
+              : "bg-[#F4F1E8] text-[#17251C] hover:bg-[#DDEBDD]"
+          }`}
+        >
+          <Zap className="w-4 h-4 text-[#D94C4C]" />
+          <span>03 IMPACTED BY FACT CHANGE</span>
+          <span className="px-1.5 py-0.2 bg-white text-[#D94C4C] rounded-[1px] font-extrabold text-[10px]">
+            {openImpacts.length}
           </span>
         </button>
       </div>
@@ -670,6 +731,118 @@ export function ReviewQueueWorkbench({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* 4. TAB: IMPACTED BY FACT CHANGE */}
+      {activeTab === "impacts" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b-2 border-[#253C2B] pb-2 font-mono text-xs gap-2">
+            <div className="flex items-center space-x-2">
+              <Zap className="w-4 h-4 text-[#D94C4C]" />
+              <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-[#17251C]">
+                CONTENT IMPACTED BY FACT CHANGE ({openImpacts.length} OPEN)
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {impactCheckMsg && (
+                <span className="text-[11px] text-[#16834A]">{impactCheckMsg}</span>
+              )}
+              {canManage && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isRunningImpactCheck}
+                  onClick={handleRunImpactCheck}
+                  className="flex items-center space-x-1"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRunningImpactCheck ? "animate-spin" : ""}`} />
+                  <span>RUN IMPACT CHECK (EXPIRY)</span>
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="p-3 bg-[#FFF8E6] border border-[#B45309] text-[#B45309] text-xs font-mono">
+            <strong>Change Impact Guard:</strong> When an approved benchmark changes or expires, approved content using it is moved to <em>NEEDS RE-REVIEW</em>. An approval is never changed automatically. Re-run audit and mark resolved once reviewed.
+          </div>
+
+          {openImpacts.length === 0 ? (
+            <div className="brutal-panel bg-white p-8 text-center font-mono text-xs text-[#637367]">
+              No content items currently impacted by fact modifications.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {openImpacts.map((impact) => {
+                const ciTitle = impact.content_item?.title || "Unknown Content Item";
+                const factName = impact.fact?.name || "Benchmark Fact";
+
+                return (
+                  <div key={impact.id} className="brutal-panel bg-white p-4 font-mono text-xs space-y-3">
+                    <div className="flex items-start justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="px-1.5 py-0.5 bg-[#FFF8E6] text-[#B45309] text-[10px] font-bold brutal-border">
+                            NEEDS RE-REVIEW
+                          </span>
+                          <span className="text-[10px] text-[#637367]">
+                            Trigger: {impact.change_type.toUpperCase().replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <h4 className="font-extrabold text-sm text-[#17251C]">
+                          {ciTitle}
+                        </h4>
+                        <p className="text-[11px] text-[#637367]">
+                          Evidence Fact: <strong>{factName}</strong> &bull; {impact.reason || "Benchmark updated"}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Link href={`/audits?item=${impact.content_item_id}&rerun=true`}>
+                          <Button variant="outline" size="sm" className="flex items-center space-x-1">
+                            <RefreshCw className="w-3 h-3" />
+                            <span>RE-RUN AUDIT &rarr;</span>
+                          </Button>
+                        </Link>
+                        {canDecide && (
+                          <Button
+                            variant="lime"
+                            size="sm"
+                            onClick={() => handleResolveImpact(impact.id)}
+                            className="flex items-center space-x-1"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>RESOLVE IMPACT</span>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Old vs New Values Side-by-Side */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#253C2B]/10">
+                      <div className="p-2.5 bg-[#FDECEA] border border-[#D94C4C] space-y-0.5">
+                        <span className="text-[10px] text-[#D94C4C] uppercase font-bold block">
+                          OLD BENCHMARK VALUE:
+                        </span>
+                        <span className="font-bold text-xs text-[#17251C]">
+                          {impact.old_value ?? "(Not specified / empty)"}
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 bg-[#DDEBDD] border border-[#16834A] space-y-0.5">
+                        <span className="text-[10px] text-[#16834A] uppercase font-bold block">
+                          NEW BENCHMARK VALUE:
+                        </span>
+                        <span className="font-bold text-xs text-[#17251C]">
+                          {impact.new_value ?? "(Superseded / Expired / Archived)"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

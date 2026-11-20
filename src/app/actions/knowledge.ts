@@ -4,6 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserContext } from "@/lib/auth-helpers";
 import { canManageKnowledge } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
+import {
+  createImpactRecords,
+  findAffectedContentItems,
+  flagItemsNeedsReReview,
+  notifyImpactedUsers,
+} from "@/lib/impact/tracker";
 
 // ==========================================
 // 1. APPROVED FACTS
@@ -83,6 +89,15 @@ export async function updateApprovedFactAction(formData: FormData) {
   }
 
   const supabase = await createClient();
+
+  // Fetch current fact BEFORE mutating so we can diff for impact tracking
+  const { data: oldFact } = await supabase
+    .from("approved_facts")
+    .select("name, value, unit, expires_at, approval_status")
+    .eq("id", id)
+    .eq("organisation_id", context.organisation.id)
+    .single();
+
   const { error } = await supabase
     .from("approved_facts")
     .update({
@@ -110,7 +125,33 @@ export async function updateApprovedFactAction(formData: FormData) {
     details: { name, value, status },
   });
 
+  // ---- Impact tracking ----
+  if (oldFact) {
+    const orgId = context.organisation.id;
+    const actorId = context.user.id;
+    const affectedItems: string[] = [];
+
+    if (oldFact.value !== value.trim()) {
+      const count = await createImpactRecords(supabase, orgId, id, "value_changed", oldFact.value, value.trim(), `Fact "${name}" value changed`);
+      if (count > 0) {
+        const items = await findAffectedContentItems(supabase, orgId, id);
+        affectedItems.push(...items);
+      }
+    }
+    if ((oldFact.unit || null) !== (unit?.trim() || null)) {
+      await createImpactRecords(supabase, orgId, id, "unit_changed", oldFact.unit, unit?.trim() || null, `Fact "${name}" unit changed`);
+    }
+    if (status === "ARCHIVED" && oldFact.approval_status !== "ARCHIVED") {
+      await createImpactRecords(supabase, orgId, id, "archived", oldFact.value, null, `Fact "${name}" was archived`);
+    }
+    if (affectedItems.length > 0) {
+      await flagItemsNeedsReReview(supabase, orgId, actorId, id, affectedItems, name);
+      await notifyImpactedUsers(supabase, orgId, affectedItems, name);
+    }
+  }
+
   revalidatePath("/knowledge");
+  revalidatePath("/reviews");
   return { success: true };
 }
 
@@ -122,6 +163,15 @@ export async function archiveApprovedFactAction(factId: string) {
   }
 
   const supabase = await createClient();
+
+  // Fetch before archiving for impact tracking
+  const { data: oldFact } = await supabase
+    .from("approved_facts")
+    .select("name, value")
+    .eq("id", factId)
+    .eq("organisation_id", context.organisation.id)
+    .single();
+
   const { error } = await supabase
     .from("approved_facts")
     .update({
@@ -144,7 +194,19 @@ export async function archiveApprovedFactAction(factId: string) {
     details: { approval_status: "ARCHIVED" },
   });
 
+  // ---- Impact tracking ----
+  if (oldFact) {
+    const orgId = context.organisation.id;
+    await createImpactRecords(supabase, orgId, factId, "archived", oldFact.value, null, `Fact "${oldFact.name}" was archived`);
+    const affectedItems = await findAffectedContentItems(supabase, orgId, factId);
+    if (affectedItems.length > 0) {
+      await flagItemsNeedsReReview(supabase, orgId, context.user.id, factId, affectedItems, oldFact.name);
+      await notifyImpactedUsers(supabase, orgId, affectedItems, oldFact.name);
+    }
+  }
+
   revalidatePath("/knowledge");
+  revalidatePath("/reviews");
   return { success: true };
 }
 
@@ -753,5 +815,208 @@ export async function deleteBrandDisclaimerAction(disclaimerId: string) {
   }
 
   revalidatePath("/knowledge");
+  return { success: true };
+}
+
+// ==========================================
+// IMPACT TRACKING ACTIONS
+// ==========================================
+
+/**
+ * Run an expiry impact check: find facts whose expiry_date has passed,
+ * create impact records for content items using them.
+ * No duplicates: uses ON CONFLICT DO NOTHING.
+ */
+export async function runImpactCheckAction(): Promise<{ success: boolean; count: number; error?: string }> {
+  const context = await getCurrentUserContext();
+  if (!context) return { success: false, count: 0, error: "Unauthorized" };
+  if (!canManageKnowledge(context.role)) {
+    return { success: false, count: 0, error: "Insufficient permissions." };
+  }
+
+  const supabase = await createClient();
+  const orgId = context.organisation.id;
+  const now = new Date().toISOString();
+
+  // Find facts that have expired
+  const { data: expiredFacts } = await supabase
+    .from("approved_facts")
+    .select("id, name, value")
+    .eq("organisation_id", orgId)
+    .neq("approval_status", "ARCHIVED")
+    .lt("expires_at", now)
+    .not("expires_at", "is", null);
+
+  let totalCreated = 0;
+  for (const fact of expiredFacts || []) {
+    const count = await createImpactRecords(
+      supabase,
+      orgId,
+      fact.id,
+      "expired",
+      fact.value,
+      null,
+      `Fact "${fact.name}" has expired`
+    );
+    totalCreated += count;
+    if (count > 0) {
+      const items = await findAffectedContentItems(supabase, orgId, fact.id);
+      if (items.length > 0) {
+        await flagItemsNeedsReReview(supabase, orgId, context.user.id, fact.id, items, fact.name);
+        await notifyImpactedUsers(supabase, orgId, items, fact.name);
+      }
+    }
+  }
+
+  await supabase.from("activity_logs").insert({
+    organisation_id: orgId,
+    actor_id: context.user.id,
+    action: "impact_check_run",
+    target_type: "organisation",
+    target_id: orgId,
+    details: { expired_facts_checked: (expiredFacts || []).length, impacts_created: totalCreated },
+  });
+
+  revalidatePath("/reviews");
+  return { success: true, count: totalCreated };
+}
+
+/**
+ * Resolve an impact record (after re-audit and human review).
+ */
+export async function resolveImpactAction(
+  impactId: string
+): Promise<{ success: boolean; error?: string }> {
+  const context = await getCurrentUserContext();
+  if (!context) return { success: false, error: "Unauthorized" };
+  if (!canManageKnowledge(context.role)) {
+    return { success: false, error: "Insufficient permissions." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("fact_change_impacts")
+    .update({
+      status: "RESOLVED",
+      resolved_by: context.user.id,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq("id", impactId)
+    .eq("organisation_id", context.organisation.id);
+
+  if (error) return { success: false, error: error.message };
+
+  await supabase.from("activity_logs").insert({
+    organisation_id: context.organisation.id,
+    actor_id: context.user.id,
+    action: "impact_resolved",
+    target_type: "fact_change_impact",
+    target_id: impactId,
+    details: {},
+  });
+
+  revalidatePath("/reviews");
+  return { success: true };
+}
+
+// ==========================================
+// CLARITY SUGGESTIONS ACTIONS
+// ==========================================
+
+import {
+  computeClaritySuggestions,
+  saveClaritySuggestions,
+} from "@/lib/clarity/suggestions";
+
+/**
+ * Compute and persist clarity suggestions for the organisation.
+ */
+export async function computeClaritySuggestionsAction(): Promise<{
+  success: boolean;
+  count: number;
+  error?: string;
+}> {
+  const context = await getCurrentUserContext();
+  if (!context) return { success: false, count: 0, error: "Unauthorized" };
+
+  const supabase = await createClient();
+  const suggestions = await computeClaritySuggestions(supabase, context.organisation.id);
+  const count = await saveClaritySuggestions(supabase, suggestions);
+
+  revalidatePath("/drift");
+  return { success: true, count };
+}
+
+/**
+ * Accept or reject a clarity suggestion.
+ * Accepting creates a DRAFT brand_guideline note linked to the rule.
+ */
+export async function reviewClaritySuggestionAction(formData: FormData): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const context = await getCurrentUserContext();
+  if (!context) return { success: false, error: "Unauthorized" };
+  if (!canManageKnowledge(context.role)) {
+    return { success: false, error: "Insufficient permissions." };
+  }
+
+  const suggestionId = formData.get("suggestion_id") as string;
+  const action = formData.get("action") as "ACCEPTED" | "REJECTED";
+  const rejectionReason = (formData.get("rejection_reason") as string)?.trim() || null;
+
+  if (!suggestionId || !action) return { success: false, error: "Missing fields." };
+
+  const supabase = await createClient();
+
+  const { data: suggestion } = await supabase
+    .from("clarity_suggestions")
+    .select("*")
+    .eq("id", suggestionId)
+    .eq("organisation_id", context.organisation.id)
+    .single();
+
+  if (!suggestion) return { success: false, error: "Suggestion not found." };
+
+  let draftGuidelineId: string | null = null;
+
+  if (action === "ACCEPTED") {
+    // Create a DRAFT guideline note — never published automatically
+    const { data: draft } = await supabase
+      .from("brand_guidelines")
+      .insert({
+        organisation_id: context.organisation.id,
+        title: `[DRAFT NOTE] Clarity improvement: ${suggestion.rule_label}`,
+        category: "voice",
+        status: "draft",
+        body: suggestion.suggestion_text,
+        version: "0.1",
+      })
+      .select("id")
+      .single();
+    draftGuidelineId = draft?.id || null;
+  }
+
+  await supabase
+    .from("clarity_suggestions")
+    .update({
+      status: action,
+      reviewed_by: context.user.id,
+      reviewed_at: new Date().toISOString(),
+      rejection_reason: action === "REJECTED" ? rejectionReason : null,
+      draft_guideline_id: draftGuidelineId,
+    })
+    .eq("id", suggestionId);
+
+  await supabase.from("activity_logs").insert({
+    organisation_id: context.organisation.id,
+    actor_id: context.user.id,
+    action: action === "ACCEPTED" ? "clarity_suggestion_accepted" : "clarity_suggestion_rejected",
+    target_type: "clarity_suggestion",
+    target_id: suggestionId,
+    details: { rule_label: suggestion.rule_label, rejection_reason: rejectionReason },
+  });
+
+  revalidatePath("/drift");
   return { success: true };
 }

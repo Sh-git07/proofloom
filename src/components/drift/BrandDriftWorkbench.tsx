@@ -14,6 +14,21 @@ import {
 } from "lucide-react";
 import { Dialog, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { scanForDriftAction, updateDriftStatusAction, DriftStatusType } from "@/app/actions/drift";
+import { computeClaritySuggestionsAction, reviewClaritySuggestionAction } from "@/app/actions/knowledge";
+import { Button } from "@/components/ui/button";
+
+export interface ClaritySuggestionItem {
+  id: string;
+  rule_label: string;
+  findings_count: number;
+  dismissed_count: number;
+  challenged_count: number;
+  reversed_count: number;
+  suggestion_text: string;
+  status: "OPEN" | "ACCEPTED" | "REJECTED";
+  created_at: string;
+  rejection_reason?: string | null;
+}
 
 export interface DriftInsightItem {
   id: string;
@@ -30,11 +45,21 @@ export interface DriftInsightItem {
 export function BrandDriftWorkbench({
   initialInsights,
   totalAuditsCount,
+  claritySuggestions: initialSuggestions = [],
+  canManage = false,
 }: {
   initialInsights: DriftInsightItem[];
   totalAuditsCount: number;
+  claritySuggestions?: ClaritySuggestionItem[];
+  canManage?: boolean;
 }) {
   const [insights, setInsights] = React.useState<DriftInsightItem[]>(initialInsights);
+  const [suggestions, setSuggestions] = React.useState<ClaritySuggestionItem[]>(initialSuggestions);
+  const [isScanningSuggestions, setIsScanningSuggestions] = React.useState(false);
+  const [suggestionMessage, setSuggestionMessage] = React.useState<string | null>(null);
+  const [rejectingId, setRejectingId] = React.useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = React.useState("");
+  const [isSubmittingReview, setIsSubmittingReview] = React.useState(false);
   const [selectedType, setSelectedType] = React.useState<string>("ALL");
   const [searchQuery, setSearchQuery] = React.useState<string>("");
   const [isScanning, setIsScanning] = React.useState(false);
@@ -81,6 +106,43 @@ export function BrandDriftWorkbench({
       setScanMessage(err instanceof Error ? err.message : "Failed to run drift scan");
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const handleComputeSuggestions = async () => {
+    setIsScanningSuggestions(true);
+    setSuggestionMessage(null);
+    try {
+      const res = await computeClaritySuggestionsAction();
+      setSuggestionMessage(
+        res.count > 0 ? `${res.count} clarity suggestion(s) generated.` : "No guidelines met the threshold (≥3 findings, ≥2 dismissals/challenges)."
+      );
+      if (res.count > 0) window.location.reload();
+    } catch {
+      setSuggestionMessage("Failed to evaluate clarity suggestions.");
+    } finally {
+      setIsScanningSuggestions(false);
+    }
+  };
+
+  const handleReviewSuggestion = async (suggestionId: string, action: "ACCEPTED" | "REJECTED") => {
+    setIsSubmittingReview(true);
+    try {
+      const fd = new FormData();
+      fd.set("suggestion_id", suggestionId);
+      fd.set("action", action);
+      if (action === "REJECTED") fd.set("rejection_reason", rejectionReason);
+
+      const res = await reviewClaritySuggestionAction(fd);
+      if (res.success) {
+        setSuggestions((prev) =>
+          prev.map((s) => (s.id === suggestionId ? { ...s, status: action, rejection_reason: rejectionReason } : s))
+        );
+        setRejectingId(null);
+        setRejectionReason("");
+      }
+    } finally {
+      setIsSubmittingReview(false);
     }
   };
 
@@ -409,6 +471,152 @@ export function BrandDriftWorkbench({
           </div>
         )}
       </Dialog>
+
+      {/* 4. Guideline Clarity Suggestions */}
+      <div className="brutal-card p-5 bg-white space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b-2 border-[#253C2B] pb-3 gap-2">
+          <div>
+            <div className="flex items-center space-x-2">
+              <BookOpen className="w-4 h-4 text-[#16834A]" />
+              <h3 className="font-mono font-bold text-sm uppercase tracking-wider text-[#17251C]">
+                GUIDELINE CLARITY SUGGESTIONS ({suggestions.length})
+              </h3>
+            </div>
+            <p className="text-xs text-[#637367] mt-0.5 font-mono">
+              Computed strictly from historical audit friction: rules with ≥3 findings and ≥2 dismissals or challenges in the last 90 days.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {suggestionMessage && (
+              <span className="text-xs font-mono text-[#16834A]">{suggestionMessage}</span>
+            )}
+            {canManage && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isScanningSuggestions}
+                onClick={handleComputeSuggestions}
+                className="flex items-center space-x-1"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isScanningSuggestions ? "animate-spin" : ""}`} />
+                <span>COMPUTE SUGGESTIONS</span>
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {suggestions.length === 0 ? (
+          <div className="p-6 text-center font-mono text-xs text-[#637367]">
+            No guidelines or terminology rules currently exceed the friction threshold (≥3 findings, ≥2 dismissals/challenges).
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {suggestions.map((sug) => {
+              const isOpen = sug.status === "OPEN";
+
+              return (
+                <div key={sug.id} className="brutal-panel bg-[#F4F1E8] p-4 font-mono text-xs space-y-3">
+                  <div className="flex items-start justify-between flex-wrap gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-bold text-[#17251C] text-sm">
+                          {sug.rule_label}
+                        </span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 brutal-border ${
+                            sug.status === "OPEN"
+                              ? "bg-[#FFF8E6] text-[#B45309]"
+                              : sug.status === "ACCEPTED"
+                              ? "bg-[#DDEBDD] text-[#16834A]"
+                              : "bg-[#FDECEA] text-[#D94C4C]"
+                          }`}
+                        >
+                          {sug.status}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3 text-[10px] text-[#637367] pt-0.5">
+                        <span>Findings: <strong>{sug.findings_count}</strong></span>
+                        <span>Dismissed: <strong>{sug.dismissed_count}</strong></span>
+                        <span>Challenged: <strong>{sug.challenged_count}</strong></span>
+                        <span>Reversed: <strong>{sug.reversed_count}</strong></span>
+                      </div>
+                    </div>
+
+                    {canManage && isOpen && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="lime"
+                          size="sm"
+                          disabled={isSubmittingReview}
+                          onClick={() => handleReviewSuggestion(sug.id, "ACCEPTED")}
+                        >
+                          ACCEPT (DRAFT NOTE)
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isSubmittingReview}
+                          onClick={() => setRejectingId(sug.id)}
+                          className="text-[#D94C4C] hover:bg-[#FDECEA]"
+                        >
+                          REJECT
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-[#17251C] leading-relaxed bg-white p-2.5 brutal-border">
+                    {sug.suggestion_text}
+                  </p>
+
+                  {sug.rejection_reason && (
+                    <div className="text-[11px] text-[#D94C4C] font-mono">
+                      Rejection Reason: {sug.rejection_reason}
+                    </div>
+                  )}
+
+                  {rejectingId === sug.id && (
+                    <div className="p-3 bg-white brutal-border space-y-2">
+                      <label className="block text-[10px] font-bold text-[#17251C] uppercase">
+                        REJECTION REASON (DOCUMENTED DECISION):
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Why is this suggestion rejected? (e.g., rule is strict legal mandate)"
+                        value={rejectionReason}
+                        onChange={(e) => setRejectionReason(e.target.value)}
+                        className="w-full p-2 bg-[#F4F1E8] brutal-border text-xs focus:outline-none"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setRejectingId(null);
+                            setRejectionReason("");
+                          }}
+                        >
+                          CANCEL
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          disabled={isSubmittingReview || !rejectionReason.trim()}
+                          onClick={() => handleReviewSuggestion(sug.id, "REJECTED")}
+                        >
+                          CONFIRM REJECTION
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

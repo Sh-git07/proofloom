@@ -1808,6 +1808,65 @@ async function seed() {
     },
   ]);
 
+  // 18. Change Impact Tracking & Guideline Clarity Demo Seeds
+  console.log("Seeding change-impact tracking and clarity suggestions...");
+
+  if (factPilot && itemA) {
+    await supabase.from("fact_change_impacts").upsert(
+      [
+        {
+          organisation_id: novaId,
+          fact_id: factPilot.id,
+          content_item_id: itemA.id,
+          change_type: "value_changed",
+          old_value: "18%",
+          new_value: "22%",
+          reason: "Updated based on latest Q3 multi-region benchmark refresh",
+          status: "OPEN",
+          is_demo: true,
+        },
+      ],
+      { onConflict: "fact_id,content_item_id,change_type", ignoreDuplicates: true }
+    );
+  }
+
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+  await supabase.from("clarity_suggestions").upsert(
+    [
+      {
+        organisation_id: novaId,
+        rule_label: "market leader → leading provider",
+        findings_count: 5,
+        dismissed_count: 3,
+        challenged_count: 2,
+        reversed_count: 1,
+        suggestion_text:
+          'Terminology rule "market leader → leading provider" was flagged 5 times and challenged or dismissed 5 times in the last 90 days. Consider clarifying its wording or adding a usage example.',
+        status: "OPEN",
+        window_start: ninetyDaysAgo,
+        is_demo: true,
+      },
+      {
+        organisation_id: novaId,
+        rule_label: "Nova Creative Core Brand Voice & Tone",
+        findings_count: 4,
+        dismissed_count: 2,
+        challenged_count: 1,
+        reversed_count: 0,
+        suggestion_text:
+          'Guideline "Nova Creative Core Brand Voice & Tone" was flagged 4 times and challenged or dismissed 3 times in the last 90 days. Consider clarifying its wording or adding an example.',
+        status: "OPEN",
+        window_start: ninetyDaysAgo,
+        is_demo: true,
+      },
+    ],
+    {
+      onConflict: "organisation_id,guideline_id,terminology_rule_id,window_start",
+      ignoreDuplicates: true,
+    }
+  );
+
   console.log("✅ Seed completed successfully!");
   console.log("\n========================================================");
   console.log("PROOFLOOM DEMO ACCOUNTS (PASSWORD: " + demoPassword + ")");

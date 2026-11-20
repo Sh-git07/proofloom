@@ -36,8 +36,8 @@ export default async function ReviewsPage({
 
   const itemIds = (contentItemsRaw || []).map((ci) => ci.id);
 
-  // 2-5. Fetch dependent versions, audits, assignments, and challenges in parallel
-  const [versionsRes, auditsRes, assignmentsRes, challengesRes] = await Promise.all([
+  // 2-5. Fetch dependent versions, audits, assignments, challenges, and impacts in parallel
+  const [versionsRes, auditsRes, assignmentsRes, challengesRes, impactsRes] = await Promise.all([
     itemIds.length > 0
       ? supabase
           .from("content_versions")
@@ -85,6 +85,23 @@ export default async function ReviewsPage({
       .eq("organisation_id", orgId)
       .order("created_at", { ascending: false })
       .limit(30),
+    supabase
+      .from("fact_change_impacts")
+      .select(`
+        id,
+        fact_id,
+        content_item_id,
+        change_type,
+        old_value,
+        new_value,
+        reason,
+        status,
+        created_at,
+        content_items(id, title, status),
+        approved_facts(id, name)
+      `)
+      .eq("organisation_id", orgId)
+      .order("created_at", { ascending: false }),
   ]);
 
   const versionsRaw = versionsRes.data || [];
@@ -191,6 +208,20 @@ export default async function ReviewsPage({
     };
   });
 
+  const impacts = (impactsRes.data || []).map((imp) => ({
+    id: imp.id,
+    fact_id: imp.fact_id,
+    content_item_id: imp.content_item_id,
+    change_type: imp.change_type,
+    old_value: imp.old_value,
+    new_value: imp.new_value,
+    reason: imp.reason,
+    status: imp.status,
+    created_at: imp.created_at,
+    content_item: imp.content_items as any,
+    fact: imp.approved_facts as any,
+  }));
+
   return (
     <div className="space-y-6">
       <div className="border-b-2 border-[#253C2B] pb-4">
@@ -211,6 +242,7 @@ export default async function ReviewsPage({
         reviewers={reviewers}
         userRole={context?.role || "viewer"}
         initialSelectedItemId={resolvedParams?.item}
+        impacts={impacts}
       />
     </div>
   );
