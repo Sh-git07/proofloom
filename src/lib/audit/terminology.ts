@@ -146,7 +146,7 @@ export function checkTerminologyDeterministic(
       (normalizedContent.includes("internal pilot") && normalizedContent.includes("results may vary"));
 
     if (!hasDisclaimer) {
-      // Find the specific sentence that contains the performance / pilot claim
+      // Find the specific sentence that contains the performance / pilot claim strictly
       const allSentences = extractAllSentences(content);
       const pilotSentence =
         allSentences.find((s) =>
@@ -155,26 +155,28 @@ export function checkTerminologyDeterministic(
           )
         ) ||
         allSentences.find((s) =>
-          /\b(\d+%\s*productivity|productivity by \d+%|\d+%\s*faster)\b/i.test(s.sentence)
+          /\b(\d+%\s*productivity|productivity by \d+%|\d+%\s*faster|\b\d+(?:\.\d+)?%\b)\b/i.test(s.sentence)
         ) ||
-        (allSentences.length > 0
-          ? allSentences[allSentences.length - 1]
-          : { sentence: content, start: 0, end: content.length });
+        allSentences.find((s) =>
+          /\b(productivity|task completion|faster|efficiency)\b/i.test(s.sentence)
+        );
 
-      findings.push({
-        id: `FIND-${String(counter++).padStart(3, "0")}`,
-        category: "terminology",
-        severity: "HIGH",
-        excerpt: pilotSentence.sentence, // Full sentence, not truncated
-        startIndex: pilotSentence.start,
-        endIndex: pilotSentence.end,
-        explanation: `Mandatory legal disclaimer missing for performance metric claim: "${REQUIRED_PERFORMANCE_DISCLAIMER}"`,
-        guidelineReference: "Compliance & Mandatory Disclaimers §4.1 (Pilot Performance Metric)",
-        recommendedAction: `Append the required disclaimer: "${REQUIRED_PERFORMANCE_DISCLAIMER}"`,
-        suggestedReplacement: `${pilotSentence.sentence} ${REQUIRED_PERFORMANCE_DISCLAIMER}`,
-        confidence: "high",
-        isResolved: false,
-      });
+      if (pilotSentence) {
+        findings.push({
+          id: `FIND-${String(counter++).padStart(3, "0")}`,
+          category: "terminology",
+          severity: "HIGH",
+          excerpt: pilotSentence.sentence, // Full sentence containing the performance claim strictly
+          startIndex: pilotSentence.start,
+          endIndex: pilotSentence.end,
+          explanation: `Mandatory legal disclaimer missing for performance metric claim: "${REQUIRED_PERFORMANCE_DISCLAIMER}"`,
+          guidelineReference: "Compliance & Mandatory Disclaimers §4.1 (Pilot Performance Metric)",
+          recommendedAction: `Append the required disclaimer: "${REQUIRED_PERFORMANCE_DISCLAIMER}"`,
+          suggestedReplacement: `${pilotSentence.sentence} ${REQUIRED_PERFORMANCE_DISCLAIMER}`,
+          confidence: "high",
+          isResolved: false,
+        });
+      }
     }
   }
 

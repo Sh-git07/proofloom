@@ -18,6 +18,7 @@ export interface AIRequestOptions<T> {
   }>;
   organisationId?: string;
   allowExternalAI?: boolean;
+  throwOnError?: boolean;
 }
 
 export interface AIProviderResult<T> {

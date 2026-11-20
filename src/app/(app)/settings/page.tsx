@@ -8,7 +8,7 @@ export default async function SettingsPage() {
   const orgId = context?.organisation.id;
 
   const aiProvider = process.env.AI_PROVIDER || "gemini";
-  const aiModel = process.env.AI_MODEL || "gemini-2.5-flash";
+  const aiModel = process.env.AI_MODEL || "gemini-3.8-flash";
   const isApiKeyConfigured = Boolean(
     process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5
   );

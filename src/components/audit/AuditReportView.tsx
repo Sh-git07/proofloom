@@ -40,6 +40,7 @@ interface AuditStage {
   completed_at?: string;
   findings_count?: number;
   error_message?: string;
+  detail?: string;
 }
 
 interface AuditFinding {
@@ -74,6 +75,7 @@ interface AuditReportViewProps {
       terminology?: number;
       accessibility?: number;
       visual?: number | null;
+      ai_warning?: boolean;
     } | null;
     checked_dimensions: string[];
     created_at: string;
@@ -156,6 +158,16 @@ export function AuditReportView({
     (f) => f.severity === "CRITICAL" && !f.is_resolved
   );
 
+  const hasAIFailed =
+    audit.mode === "live_ai" &&
+    (Boolean(audit.scores?.ai_warning) ||
+      stages.some(
+        (s) =>
+          (s.detail && s.detail.includes("AI: failed, rules only")) ||
+          s.status === "FAILED" ||
+          Boolean(s.error_message)
+      ));
+
   async function handleSubmitForReview() {
     setIsSubmittingReview(true);
     setSubmitError(null);
@@ -222,6 +234,7 @@ export function AuditReportView({
                       ...s,
                       status: "COMPLETED",
                       findings_count: data.stage.findingsCount,
+                      detail: data.stage.detail,
                     }
                   : s
               )
@@ -426,6 +439,21 @@ export function AuditReportView({
             <span className="font-mono text-[10px] font-bold px-2 py-0.5 bg-[#F4F1E8] brutal-border">
               {contentItem.content_type} &bull; {contentItem.platform}
             </span>
+            <span
+              className={`font-mono text-[10px] font-bold px-2 py-0.5 brutal-border ${
+                hasAIFailed
+                  ? "bg-[#D94C4C] text-white"
+                  : audit.mode === "live_ai"
+                  ? "bg-[#B7F28B] text-[#17251C]"
+                  : "bg-[#F4F1E8] text-[#17251C]"
+              }`}
+            >
+              {hasAIFailed
+                ? "LIVE AI (GEMINI): voice analysis unavailable, rules only"
+                : audit.mode === "live_ai"
+                ? "LIVE AI (GEMINI)"
+                : "DEMO (RULE-BASED)"}
+            </span>
           </div>
           <h1 className="font-mono font-extrabold text-2xl sm:text-3xl tracking-tight text-[#17251C] mt-1">
             {contentItem.title}
@@ -521,6 +549,13 @@ export function AuditReportView({
         </div>
       )}
 
+      {hasAIFailed && (
+        <div className="p-3.5 bg-[#FFF3CD] border-2 border-[#E6A23C] text-[#856404] text-xs font-mono font-bold flex items-center space-x-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-[#E6A23C]" />
+          <span>LIVE AI (GEMINI): voice analysis unavailable, rules only. Deterministic rule-based analysis was preserved.</span>
+        </div>
+      )}
+
       {/* 2. LIVE STAGE RUNNER ANIMATION */}
       {isRunning ? (
         <div className="brutal-panel bg-white p-6 space-y-5">
@@ -574,8 +609,25 @@ export function AuditReportView({
                   <div className="text-right text-[11px] font-bold">
                     {isProcessing && <span className="animate-pulse">ANALYZING...</span>}
                     {isCompleted && (
-                      <span className="text-[#16834A]">
-                        PASSED ({stage.findings_count || 0} findings)
+                      <span className="text-right">
+                        {stage.detail?.includes("AI: failed, rules only") ? (
+                          <span className="text-[#D94C4C] font-bold flex items-center space-x-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-[#D94C4C] shrink-0" />
+                            <span>WARNING: AI failed, rules only ({stage.findings_count || 0} findings)</span>
+                          </span>
+                        ) : (
+                          <span className="text-[#16834A] flex items-center space-x-1.5 font-bold">
+                            <span>PASSED ({stage.findings_count || 0} findings)</span>
+                            <span className="text-[#637367]">&bull;</span>
+                            <span className={stage.detail?.includes("AI: used") ? "text-[#16834A]" : "text-[#637367]"}>
+                              {stage.detail?.includes("AI: used")
+                                ? "AI: used"
+                                : audit.mode === "live_ai" && (stage.stage_number === 2 || stage.stage_number === 4)
+                                ? "AI: used"
+                                : "AI: not used"}
+                            </span>
+                          </span>
+                        )}
                       </span>
                     )}
                     {isFailed && <span>STAGE FAILED</span>}
@@ -639,8 +691,12 @@ export function AuditReportView({
 
                 <div className="flex items-center justify-between text-[11px] font-mono">
                   <span className="text-[#637367]">ENGINE MODE:</span>
-                  <span className="font-bold text-[#17251C]">
-                    {audit.mode === "live_ai" ? "LIVE AI (GEMINI)" : "DEMO (RULE-BASED)"}
+                  <span className={`font-bold ${hasAIFailed ? "text-[#D94C4C]" : "text-[#17251C]"}`}>
+                    {hasAIFailed
+                      ? "LIVE AI (GEMINI): voice analysis unavailable, rules only"
+                      : audit.mode === "live_ai"
+                      ? "LIVE AI (GEMINI)"
+                      : "DEMO (RULE-BASED)"}
                   </span>
                 </div>
               </div>
@@ -721,6 +777,78 @@ export function AuditReportView({
               <p className="text-[10px] font-mono text-[#637367] uppercase pt-1">
                 {SCORING_FOOTNOTE}
               </p>
+            </div>
+          </div>
+
+          {/* Verification Pipeline Stages & Honest AI Labels */}
+          <div className="brutal-panel bg-white p-4 space-y-3 font-mono text-xs">
+            <div className="flex items-center justify-between border-b-2 border-[#253C2B] pb-2">
+              <div className="flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-[#16834A]" />
+                <h3 className="font-bold text-xs uppercase tracking-wider text-[#17251C]">
+                  VERIFICATION PIPELINE AUDIT STAGES (7 STAGES)
+                </h3>
+              </div>
+              <span className="text-[10px] text-[#637367]">
+                {audit.mode === "live_ai"
+                  ? hasAIFailed
+                    ? "AI WARNING REPORTED (FALLBACK ACTIVE)"
+                    : "LIVE AI PIPELINE"
+                  : "DETERMINISTIC DEMO"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              {stages.map((stg) => {
+                const isFailed =
+                  (stg.detail && stg.detail.includes("AI: failed, rules only")) ||
+                  stg.status === "FAILED";
+                const isAIUsed = stg.detail && stg.detail.includes("AI: used");
+
+                return (
+                  <div
+                    key={stg.id}
+                    className={`p-2.5 brutal-border flex flex-col justify-between ${
+                      isFailed
+                        ? "bg-[#F8D7DA] border-[#D94C4C] text-[#721C24]"
+                        : "bg-[#F4F1E8] text-[#17251C]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[11px] truncate">
+                        {stg.stage_name || stg.stage_key}
+                      </span>
+                      {isFailed ? (
+                        <span className="px-1.5 py-0.2 bg-[#D94C4C] text-white font-extrabold text-[9px] uppercase">
+                          WARNING
+                        </span>
+                      ) : (
+                        <span className="text-[#16834A] font-bold text-[9px]">PASSED</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-[#253C2B]/15 text-[10px]">
+                      <span className="text-[#637367]">
+                        {stg.findings_count || 0} findings
+                      </span>
+                      <span
+                        className={`font-bold ${
+                          isFailed
+                            ? "text-[#D94C4C]"
+                            : isAIUsed
+                            ? "text-[#16834A]"
+                            : "text-[#637367]"
+                        }`}
+                      >
+                        {isFailed
+                          ? "AI: failed, rules only"
+                          : isAIUsed
+                          ? "AI: used"
+                          : "AI: not used"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

@@ -134,51 +134,69 @@ export async function executeNextStage(auditId: string) {
 
   try {
     let findingsCount = 0;
+    let stageDetail = "";
 
     // Execute stage-specific logic
     switch (stageNum) {
       case 1: {
         // [01] CONTENT INGESTION: Sanitize and compute basic metrics
         findingsCount = 0;
+        stageDetail = "AI: not used • Content ingested successfully";
         break;
       }
 
       case 2: {
         // [02] CLAIM EXTRACTION
         const extracted = extractClaimsDeterministic(contentBody);
+        let aiClaimsStatus: "used" | "failed" | "not_used" = "not_used";
 
         // Augment with AI if live mode enabled
         if (mode === "live_ai") {
           try {
             const aiClaims = await generateStructured({
               task: "claim_extraction",
-              system: "You are a brand verification specialist. Extract specific factual, numerical, and comparative claims from the provided text. Return literal substrings only.",
+              system:
+                "You are a brand verification specialist. Extract specific factual, numerical, and comparative claims from the provided text. Return literal substrings only.",
               prompt: contentBody,
               schema: z.object({
                 claims: z.array(
                   z.object({
                     claim_text: z.string(),
-                    claim_type: z.enum(["numerical", "factual", "comparative", "promotional", "opinion"]),
+                    claim_type: z.enum([
+                      "numerical",
+                      "factual",
+                      "comparative",
+                      "promotional",
+                      "opinion",
+                    ]),
                     confidence: z.enum(["high", "medium", "low"]),
                   })
                 ),
               }),
               organisationId: orgId,
+              throwOnError: true,
             });
 
-            for (const c of aiClaims.data.claims) {
-              const idx = contentBody.indexOf(c.claim_text);
-              if (idx !== -1 && !extracted.some((e) => e.text === c.claim_text)) {
-                extracted.push({
-                  text: c.claim_text,
-                  startIndex: idx,
-                  endIndex: idx + c.claim_text.length,
-                  claimType: c.claim_type,
-                });
+            if (aiClaims && aiClaims.data && Array.isArray(aiClaims.data.claims)) {
+              for (const c of aiClaims.data.claims) {
+                if (!c.claim_text || typeof c.claim_text !== "string") continue;
+                const idx = contentBody.indexOf(c.claim_text);
+                if (idx !== -1 && !extracted.some((e) => e.text === c.claim_text)) {
+                  extracted.push({
+                    text: c.claim_text,
+                    startIndex: idx,
+                    endIndex: idx + c.claim_text.length,
+                    claimType: c.claim_type,
+                  });
+                }
               }
+              aiClaimsStatus = "used";
+            } else {
+              aiClaimsStatus = "failed";
             }
           } catch (err) {
             console.warn("AI claim extraction fallback:", err);
+            aiClaimsStatus = "failed";
           }
         }
 
@@ -188,7 +206,14 @@ export async function executeNextStage(auditId: string) {
             audit_id: auditId,
             organisation_id: orgId,
             claim_text: c.text,
-            claim_type: c.claimType === "numerical" || c.claimType === "factual" || c.claimType === "comparative" || c.claimType === "promotional" || c.claimType === "opinion" ? c.claimType : "factual",
+            claim_type:
+              c.claimType === "numerical" ||
+              c.claimType === "factual" ||
+              c.claimType === "comparative" ||
+              c.claimType === "promotional" ||
+              c.claimType === "opinion"
+                ? c.claimType
+                : "factual",
             start_offset: c.startIndex,
             end_offset: c.endIndex,
             verification_status: "UNSUPPORTED",
@@ -198,6 +223,14 @@ export async function executeNextStage(auditId: string) {
           await supabase.from("extracted_claims").insert(rows);
         }
         findingsCount = extracted.length;
+
+        if (mode !== "live_ai") {
+          stageDetail = `AI: not used • Completed with ${findingsCount} claims`;
+        } else if (aiClaimsStatus === "used") {
+          stageDetail = `AI: used • Completed with ${findingsCount} claims`;
+        } else {
+          stageDetail = `AI: failed, rules only • Completed with ${findingsCount} claims (warning: AI claim extraction unavailable)`;
+        }
         break;
       }
 
@@ -249,10 +282,19 @@ export async function executeNextStage(auditId: string) {
               text: claim.claim_text,
               startIndex: claim.start_offset ?? 0,
               endIndex: claim.end_offset ?? claim.claim_text.length,
-              claimType: claim.claim_type as "numerical" | "factual" | "comparative" | "promotional" | "opinion",
+              claimType: claim.claim_type as
+                | "numerical"
+                | "factual"
+                | "comparative"
+                | "promotional"
+                | "opinion",
             };
 
-            const verified = verifyClaimAgainstEvidence(raw, (facts as unknown as DatabaseFact[]) || [], tolerance);
+            const verified = verifyClaimAgainstEvidence(
+              raw,
+              (facts as unknown as DatabaseFact[]) || [],
+              tolerance
+            );
 
             // Update extracted_claims row status
             await supabase
@@ -289,10 +331,21 @@ export async function executeNextStage(auditId: string) {
 
               let suggestedReplacement: string | undefined;
               if (verified.status === "CONTRADICTED" && verified.matchedFact) {
-                suggestedReplacement = contentBody.slice(raw.startIndex, raw.endIndex).replace(
-                  raw.text,
-                  `${verified.matchedFact.value} (in internal pilot)`
-                );
+                // Grammatical replacement for only the flagged span with no duplicated pilot text
+                const isPercentClaim = ("unit" in raw && raw.unit === "%") || raw.text.endsWith("%");
+                if (isPercentClaim) {
+                  const num = verified.matchedFact.numeric_value ?? 18;
+                  const surrounding = contentBody.slice(
+                    Math.max(0, raw.startIndex - 50),
+                    Math.min(contentBody.length, raw.endIndex + 50)
+                  ).toLowerCase();
+                  const alreadyMentionsPilot = surrounding.includes("pilot");
+                  suggestedReplacement = alreadyMentionsPilot ? `${num}%` : `${num}% in an internal pilot`;
+                } else {
+                  let factVal = verified.matchedFact.value || "";
+                  factVal = factVal.replace(/\s*\((?:in\s+)?internal\s+pilot\)/gi, "").trim();
+                  suggestedReplacement = factVal;
+                }
               } else if (verified.status === "OUTDATED" && verified.currentFact) {
                 suggestedReplacement = verified.currentFact.value;
               }
@@ -330,6 +383,7 @@ export async function executeNextStage(auditId: string) {
           await supabase.from("audit_findings").insert(newFindings);
         }
         findingsCount = newFindings.length;
+        stageDetail = `AI: not used • Completed with ${findingsCount} findings`;
         break;
       }
 
@@ -344,6 +398,138 @@ export async function executeNextStage(auditId: string) {
           contentBody,
           (termRules as unknown as DatabaseTermRule[]) || []
         );
+
+        let aiVoiceStatus: "used" | "failed" | "not_used" = "not_used";
+
+        // Augment with Live AI if enabled
+        if (mode === "live_ai") {
+          try {
+            // Fetch published guidelines for the organisation
+            const { data: dbGuidelines } = await supabase
+              .from("brand_guidelines")
+              .select("title, category, body, rules, prohibited_terms")
+              .eq("organisation_id", orgId)
+              .eq("status", "published");
+
+            const itemData = audit.content_items as unknown as {
+              platform?: string;
+              audience?: string;
+              content_type?: string;
+              department?: string;
+            } | null;
+
+            const platform = itemData?.platform || "General";
+            const audience = itemData?.audience || "General Audience";
+
+            const guidelinesSummary = (dbGuidelines || []).map((g) => ({
+              title: g.title,
+              body: g.body,
+              rules: g.rules,
+            }));
+
+            const userPrompt = JSON.stringify({
+              content: contentBody,
+              platform,
+              audience,
+              guidelines:
+                guidelinesSummary.length > 0
+                  ? guidelinesSummary
+                  : [
+                      {
+                        title: "Brand Voice Standard",
+                        body: "Clear, professional, human, approachable. Avoid aggressive, coercive hype or ungrounded urgency.",
+                        rules: [
+                          "No aggressive, coercive, or high-pressure FOMO sales language.",
+                          "Preserve clarity and speak to creators and managers with respect and professional rigor.",
+                          "Avoid casual slang, ungrounded urgency, and colloquial pressure.",
+                        ],
+                      },
+                    ],
+            });
+
+            const systemPrompt =
+              "You are an authoritative brand voice auditor. Evaluate the submitted text against the organization's published brand voice guidelines, target audience, and distribution platform. Identify spans of text that violate brand tone, style, professionalism, or guidelines. Return JSON with a findings array containing: excerpt (must be an EXACT literal substring from the text), severity (CRITICAL, HIGH, MEDIUM, LOW, or INFO), explanation, guideline_cited, suggested_replacement.";
+
+            const aiRes = await generateStructured({
+              task: "voice_analysis",
+              system: systemPrompt,
+              prompt: userPrompt,
+              schema: z.object({
+                findings: z.array(
+                  z.object({
+                    excerpt: z.string(),
+                    severity: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]),
+                    explanation: z.string(),
+                    guideline_cited: z.string(),
+                    suggested_replacement: z.string().optional(),
+                  })
+                ),
+              }),
+              organisationId: orgId,
+              throwOnError: true,
+            });
+
+            let addedAICount = 0;
+            if (aiRes && aiRes.data && Array.isArray(aiRes.data.findings)) {
+              const normalizedDisallowed = new Set(
+                (termRules || []).map((r) => r.disallowed_term.trim().toLowerCase())
+              );
+
+              for (const f of aiRes.data.findings) {
+                if (!f.excerpt || typeof f.excerpt !== "string") continue;
+                const idx = contentBody.indexOf(f.excerpt);
+                // Discard any excerpt that is not a literal substring
+                if (idx === -1) {
+                  continue;
+                }
+
+                const lowerExcerpt = f.excerpt.trim().toLowerCase();
+                // Skip if "number one" or matches a terminology rule
+                if (lowerExcerpt === "number one" || lowerExcerpt === "#1") continue;
+                if (normalizedDisallowed.has(lowerExcerpt)) continue;
+
+                // Deduplicate: if an existing voice finding covers this exact span, skip
+                if (
+                  voiceFindings.some(
+                    (vf) => vf.startIndex === idx && vf.endIndex === idx + f.excerpt.length
+                  )
+                ) {
+                  continue;
+                }
+
+                voiceFindings.push({
+                  id: `FIND-AI-${String(addedAICount + 1).padStart(3, "0")}`,
+                  category: "voice",
+                  severity: f.severity,
+                  excerpt: f.excerpt,
+                  startIndex: idx,
+                  endIndex: idx + f.excerpt.length,
+                  explanation: f.explanation,
+                  guidelineReference:
+                    f.guideline_cited || "Brand Voice Guidelines: Tone, Style & Hype Reduction",
+                  recommendedAction: f.suggested_replacement
+                    ? `Replace with: "${f.suggested_replacement}"`
+                    : f.explanation,
+                  suggestedReplacement: f.suggested_replacement,
+                  confidence: "high",
+                  isResolved: false,
+                });
+                addedAICount++;
+              }
+
+              if (aiRes.data.findings.length > 0 && addedAICount === 0) {
+                aiVoiceStatus = "failed";
+              } else {
+                aiVoiceStatus = "used";
+              }
+            } else {
+              aiVoiceStatus = "failed";
+            }
+          } catch (err) {
+            console.warn("AI voice analysis failed:", err);
+            aiVoiceStatus = "failed";
+          }
+        }
 
         if (voiceFindings.length > 0) {
           const rows = voiceFindings.map((f, idx) => ({
@@ -360,12 +546,21 @@ export async function executeNextStage(auditId: string) {
             recommended_action: f.recommendedAction,
             suggested_replacement: f.suggestedReplacement,
             confidence: (f.confidence as "high" | "medium" | "low") || "high",
+            confidence_note: f.id.includes("AI") ? "AI" : "rules",
             is_resolved: false,
           }));
 
           await supabase.from("audit_findings").insert(rows);
         }
         findingsCount = voiceFindings.length;
+
+        if (mode !== "live_ai") {
+          stageDetail = `AI: not used • Completed with ${findingsCount} findings`;
+        } else if (aiVoiceStatus === "used") {
+          stageDetail = `AI: used • Completed with ${findingsCount} findings`;
+        } else {
+          stageDetail = `AI: failed, rules only • Completed with ${findingsCount} findings (warning: AI voice analysis unavailable)`;
+        }
         break;
       }
 
@@ -406,6 +601,7 @@ export async function executeNextStage(auditId: string) {
           await supabase.from("audit_findings").insert(rows);
         }
         findingsCount = termFindings.length;
+        stageDetail = `AI: not used • Completed with ${findingsCount} findings`;
         break;
       }
 
@@ -433,6 +629,7 @@ export async function executeNextStage(auditId: string) {
           await supabase.from("audit_findings").insert(rows);
         }
         findingsCount = a11yFindings.length;
+        stageDetail = `AI: not used • Completed with ${findingsCount} findings`;
         break;
       }
 
@@ -466,6 +663,19 @@ export async function executeNextStage(auditId: string) {
         const hasCritical = findingRecords.some((f) => f.severity === "CRITICAL" && !f.isResolved);
         const finalStatus = hasCritical ? "REVISION_REQUIRED" : "COMPLETED";
 
+        const { data: priorStages } = await supabase
+          .from("audit_stages")
+          .select("detail, error")
+          .eq("audit_id", auditId);
+
+        const hasAIFailure =
+          mode === "live_ai" &&
+          (priorStages || []).some(
+            (s) => (s.detail && s.detail.includes("AI: failed, rules only")) || s.error
+          );
+
+        stageDetail = `AI: not used • Final score: ${scores.overall}/100`;
+
         // Update audit record with final scores
         await supabase
           .from("audits")
@@ -477,6 +687,7 @@ export async function executeNextStage(auditId: string) {
               terminology: scores.terminology,
               accessibility: scores.accessibility,
               visual: scores.visual,
+              ai_warning: hasAIFailure,
             },
             status: "COMPLETED",
           })
@@ -514,7 +725,7 @@ export async function executeNextStage(auditId: string) {
       .update({
         status: "COMPLETED",
         finished_at: new Date().toISOString(),
-        detail: `Completed with ${findingsCount} findings`,
+        detail: stageDetail || `Completed with ${findingsCount} findings`,
       })
       .eq("id", stageId);
 
@@ -525,6 +736,7 @@ export async function executeNextStage(auditId: string) {
         name: nextStage.stage_key || nextStage.stage_name,
         status: "COMPLETED",
         findingsCount,
+        detail: stageDetail || `Completed with ${findingsCount} findings`,
       },
     };
   } catch (err: unknown) {

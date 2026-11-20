@@ -64,6 +64,60 @@ export function SettingsWorkbench({
   const [isSaving, setIsSaving] = React.useState(false);
   const [feedback, setFeedback] = React.useState<{ type: "success" | "error"; message: string } | null>(null);
 
+  // Live AI Health State
+  const [health, setHealth] = React.useState<{
+    loading: boolean;
+    model: string;
+    status: string;
+    httpStatus: number;
+    latencyMs: number;
+    message: string;
+    isHealthy: boolean;
+    lastChecked: string | null;
+  }>({
+    loading: false,
+    model: activeAiModel,
+    status: "CHECKING",
+    httpStatus: 0,
+    latencyMs: 0,
+    message: "Verifying live Gemini model status...",
+    isHealthy: true,
+    lastChecked: null,
+  });
+
+  const checkHealth = React.useCallback(async () => {
+    setHealth((prev) => ({ ...prev, loading: true }));
+    try {
+      const res = await fetch("/api/ai/health");
+      const data = await res.json();
+      setHealth({
+        loading: false,
+        model: data.model || activeAiModel,
+        status: data.status,
+        httpStatus: data.httpStatus,
+        latencyMs: data.latencyMs,
+        message: data.message,
+        isHealthy: Boolean(data.isHealthy),
+        lastChecked: new Date().toLocaleTimeString(),
+      });
+    } catch (err: unknown) {
+      setHealth({
+        loading: false,
+        model: activeAiModel,
+        status: "ERROR",
+        httpStatus: 0,
+        latencyMs: 0,
+        message: err instanceof Error ? err.message : "Health check request failed",
+        isHealthy: false,
+        lastChecked: new Date().toLocaleTimeString(),
+      });
+    }
+  }, [activeAiModel]);
+
+  React.useEffect(() => {
+    checkHealth();
+  }, [checkHealth]);
+
   const totalWeight =
     (weights.voice || 0) +
     (weights.claims || 0) +
@@ -171,8 +225,70 @@ export function SettingsWorkbench({
             <span className="font-bold text-[#17251C] text-sm uppercase">{activeAiProvider}</span>
           </div>
           <div className="p-3 bg-[#F4F1E8] brutal-border">
-            <span className="text-[#637367] block text-[10px] uppercase">MODEL IDENTIFIER</span>
+            <span className="text-[#637367] block text-[10px] uppercase">MODEL IDENTIFIER (ENV)</span>
             <span className="font-bold text-[#17251C] text-sm">{activeAiModel}</span>
+          </div>
+        </div>
+
+        {/* Live AI Health Check Card */}
+        <div className="p-4 bg-[#F4F1E8] brutal-border space-y-3 font-mono text-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div
+                className={`w-3 h-3 rounded-full ${
+                  health.isHealthy ? "bg-[#16834A] animate-pulse" : "bg-[#D94C4C]"
+                }`}
+              />
+              <span className="font-bold text-[#17251C] uppercase">
+                LIVE AI HEALTH CHECK
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={checkHealth}
+              disabled={health.loading}
+              className="px-2.5 py-1 bg-white brutal-border font-bold text-[10px] uppercase flex items-center space-x-1.5 hover:bg-[#B7F28B] transition-colors"
+            >
+              <RefreshCw className={`w-3 h-3 ${health.loading ? "animate-spin" : ""}`} />
+              <span>{health.loading ? "CHECKING..." : "RE-CHECK HEALTH"}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-2.5 bg-white brutal-border">
+              <span className="text-[#637367] text-[10px] block uppercase">MODEL TESTED</span>
+              <span className="font-bold text-[#17251C] text-xs block truncate">{health.model}</span>
+            </div>
+            <div className="p-2.5 bg-white brutal-border">
+              <span className="text-[#637367] text-[10px] block uppercase">LAST CALL STATUS</span>
+              <span
+                className={`font-bold text-xs ${
+                  health.isHealthy ? "text-[#16834A]" : "text-[#D94C4C]"
+                }`}
+              >
+                {health.status} {health.httpStatus > 0 ? `(HTTP ${health.httpStatus})` : ""}
+              </span>
+            </div>
+            <div className="p-2.5 bg-white brutal-border">
+              <span className="text-[#637367] text-[10px] block uppercase">RESPONSE LATENCY</span>
+              <span className="font-bold text-[#17251C] text-xs">
+                {health.latencyMs > 0 ? `${health.latencyMs}ms` : "--"}{" "}
+                {health.lastChecked ? `at ${health.lastChecked}` : ""}
+              </span>
+            </div>
+          </div>
+
+          <div
+            className={`p-2.5 brutal-border text-[11px] ${
+              health.isHealthy
+                ? "bg-[#DDEBDD] text-[#16834A]"
+                : "bg-[#F8D7DA] text-[#721C24]"
+            }`}
+          >
+            <span className="font-bold">
+              {health.isHealthy ? "STATUS: " : "ALERT: "}
+            </span>
+            <span>{health.message}</span>
           </div>
         </div>
 

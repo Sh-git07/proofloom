@@ -39,6 +39,9 @@ export async function generateStructured<T>(
 
   // If external AI is not allowed, or configured as demo, or key missing -> use Demo engine
   if (!allowExternal || configuredProvider === "demo" || !geminiKey) {
+    if (options.throwOnError && configuredProvider === "gemini") {
+      throw new Error(`Live AI unavailable: ${!geminiKey ? "GEMINI_API_KEY missing" : !allowExternal ? "External AI disabled for organisation" : "Demo mode active"}`);
+    }
     return await callDemoStructured(options);
   }
 
@@ -47,7 +50,7 @@ export async function generateStructured<T>(
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       if (configuredProvider === "gemini") {
-        return await callGeminiStructured(options, geminiKey, process.env.AI_MODEL || "gemini-2.5-flash");
+        return await callGeminiStructured(options, geminiKey, process.env.AI_MODEL || "gemini-3.8-flash");
       }
       // If other providers unconfigured, fallback to demo
       return await callDemoStructured(options);
@@ -60,7 +63,12 @@ export async function generateStructured<T>(
     }
   }
 
-  // On persistent failure, fall back gracefully to demo analysis mode so user task is never permanently blocked
+  // On persistent failure, rethrow if throwOnError is requested so honest status can be reported
+  if (options.throwOnError) {
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  // Otherwise fall back gracefully to demo analysis mode so user task is never permanently blocked
   console.warn("External AI call failed after retry, falling back to deterministic demo engine:", lastError);
   return await callDemoStructured(options);
 }
