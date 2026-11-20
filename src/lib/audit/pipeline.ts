@@ -108,8 +108,11 @@ export async function executeNextStage(auditId: string) {
     throw new Error(`Failed to fetch audit stages: ${stagesErr?.message || "Unknown error"}`);
   }
 
-  // Find next QUEUED or FAILED stage
-  const nextStage = stages.find((s) => s.status === "QUEUED" || s.status === "FAILED");
+  // Find next stage: prioritize QUEUED, then FAILED, then stalled PROCESSING stages (recovers aborted invocations)
+  const nextStage =
+    stages.find((s) => s.status === "QUEUED") ||
+    stages.find((s) => s.status === "FAILED") ||
+    stages.find((s) => s.status === "PROCESSING");
   if (!nextStage) {
     return { completed: true, stage: null, auditStatus: audit.status };
   }
@@ -421,11 +424,13 @@ export async function executeNextStage(auditId: string) {
             const platform = itemData?.platform || "General";
             const audience = itemData?.audience || "General Audience";
 
-            const guidelinesSummary = (dbGuidelines || []).map((g) => ({
-              title: g.title,
-              body: g.body,
-              rules: g.rules,
-            }));
+            // Compact relevant guideline excerpts only (Requirement 3: SPEED)
+            const guidelinesSummary = (dbGuidelines || [])
+              .slice(0, 4)
+              .map((g) => ({
+                title: g.title,
+                rules: Array.isArray(g.rules) ? g.rules.slice(0, 4) : g.rules,
+              }));
 
             const userPrompt = JSON.stringify({
               content: contentBody,
@@ -746,6 +751,7 @@ export async function executeNextStage(auditId: string) {
       .update({
         status: "FAILED",
         error: errorMsg,
+        detail: `Failed: ${errorMsg}`,
         finished_at: new Date().toISOString(),
       })
       .eq("id", stageId);

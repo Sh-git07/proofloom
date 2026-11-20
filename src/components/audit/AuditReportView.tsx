@@ -638,13 +638,17 @@ export function AuditReportView({
             })}
           </div>
         </div>
-      ) : runError ? (
+      ) : (runError || stages.some((s) => s.status === "FAILED")) ? (
         <div className="brutal-panel bg-white p-6 space-y-4 border-2 border-[#D94C4C]">
           <div className="flex items-center space-x-2 text-[#D94C4C]">
-            <AlertTriangle className="w-5 h-5" />
+            <AlertTriangle className="w-5 h-5 text-[#D94C4C]" />
             <h3 className="font-mono font-bold text-sm uppercase">Stage Execution Interrupted</h3>
           </div>
-          <p className="font-mono text-xs text-[#17251C]">{runError}</p>
+          <p className="font-mono text-xs text-[#17251C]">
+            {runError ||
+              stages.find((s) => s.status === "FAILED")?.error_message ||
+              `Stage ${stages.find((s) => s.status === "FAILED")?.stage_number || ""} failed during execution.`}
+          </p>
           <Button variant="danger" size="md" onClick={handleRetryStage}>
             RETRY STAGE &rarr;
           </Button>

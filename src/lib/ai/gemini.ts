@@ -1,9 +1,16 @@
 import { AIRequestOptions, AIProviderResult } from "./types";
 
+export interface GeminiCallOptions {
+  timeoutMs?: number;
+  isFallback?: boolean;
+}
+
 export async function callGeminiStructured<T>(
   options: AIRequestOptions<T>,
   apiKey: string,
-  modelName: string = process.env.AI_MODEL || "gemini-3.8-flash"
+  modelName: string = process.env.AI_MODEL || "gemini-3.8-flash",
+  timeoutMs: number = 15000,
+  isFallback: boolean = false
 ): Promise<AIProviderResult<T>> {
   const startTime = Date.now();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
@@ -35,15 +42,25 @@ export async function callGeminiStructured<T>(
   let httpStatus = 0;
   let zodPassed = false;
 
+  // Enforce hard timeout with AbortController
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
   try {
     const response = await fetch(url, {
       method: "POST",
+      signal: controller.signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents,
         generationConfig: {
           response_mime_type: "application/json",
-          temperature: 0.1, // low temperature for consistent verification analysis
+          temperature: 0.1,
+          thinkingConfig: {
+            thinkingBudget: 0,
+          },
         },
       }),
     });
@@ -58,13 +75,20 @@ export async function callGeminiStructured<T>(
           tag: "GEMINI_SERVER_LOG",
           task: options.task,
           model: modelName,
+          modelType: isFallback ? "fallback" : "primary",
+          isFallback,
           httpStatus,
           latencyMs,
           zodValidation: false,
           error: `HTTP ${httpStatus}`,
         })
       );
-      throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+
+      const err = new Error(`Gemini API error (${response.status}): ${errorText}`);
+      (err as unknown as { status: number }).status = response.status;
+      (err as unknown as { isRetryable: boolean }).isRetryable = [429, 500, 503].includes(response.status);
+      (err as unknown as { isFallback: boolean }).isFallback = isFallback;
+      throw err;
     }
 
     const resJson = await response.json();
@@ -77,6 +101,8 @@ export async function callGeminiStructured<T>(
           tag: "GEMINI_SERVER_LOG",
           task: options.task,
           model: modelName,
+          modelType: isFallback ? "fallback" : "primary",
+          isFallback,
           httpStatus,
           latencyMs,
           zodValidation: false,
@@ -96,6 +122,8 @@ export async function callGeminiStructured<T>(
           tag: "GEMINI_SERVER_LOG",
           task: options.task,
           model: modelName,
+          modelType: isFallback ? "fallback" : "primary",
+          isFallback,
           httpStatus,
           latencyMs,
           zodValidation: false,
@@ -114,6 +142,8 @@ export async function callGeminiStructured<T>(
           tag: "GEMINI_SERVER_LOG",
           task: options.task,
           model: modelName,
+          modelType: isFallback ? "fallback" : "primary",
+          isFallback,
           httpStatus,
           latencyMs,
           zodValidation: true,
@@ -124,6 +154,7 @@ export async function callGeminiStructured<T>(
         data: validated,
         provider: "gemini",
         modelUsed: modelName,
+        isFallback,
         isSimulated: false,
         latencyMs,
       };
@@ -134,6 +165,8 @@ export async function callGeminiStructured<T>(
           tag: "GEMINI_SERVER_LOG",
           task: options.task,
           model: modelName,
+          modelType: isFallback ? "fallback" : "primary",
+          isFallback,
           httpStatus,
           latencyMs,
           zodValidation: false,
@@ -143,13 +176,39 @@ export async function callGeminiStructured<T>(
       throw schemaErr;
     }
   } catch (err: unknown) {
-    if (!zodPassed && httpStatus === 0) {
-      const latencyMs = Date.now() - startTime;
+    const isAborted = controller.signal.aborted || (err as { name?: string })?.name === "AbortError";
+    const latencyMs = Date.now() - startTime;
+
+    if (isAborted) {
       console.log(
         JSON.stringify({
           tag: "GEMINI_SERVER_LOG",
           task: options.task,
           model: modelName,
+          modelType: isFallback ? "fallback" : "primary",
+          isFallback,
+          httpStatus: 408,
+          latencyMs,
+          zodValidation: false,
+          error: `Request timed out after ${timeoutMs}ms`,
+        })
+      );
+      const timeoutErr = new Error(`Gemini call to ${modelName} timed out after ${timeoutMs}ms`);
+      (timeoutErr as unknown as { name: string }).name = "TimeoutError";
+      (timeoutErr as unknown as { status: number }).status = 408;
+      (timeoutErr as unknown as { isRetryable: boolean }).isRetryable = true;
+      (timeoutErr as unknown as { isFallback: boolean }).isFallback = isFallback;
+      throw timeoutErr;
+    }
+
+    if (!zodPassed && httpStatus === 0) {
+      console.log(
+        JSON.stringify({
+          tag: "GEMINI_SERVER_LOG",
+          task: options.task,
+          model: modelName,
+          modelType: isFallback ? "fallback" : "primary",
+          isFallback,
           httpStatus: 0,
           latencyMs,
           zodValidation: false,
@@ -158,5 +217,7 @@ export async function callGeminiStructured<T>(
       );
     }
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }

@@ -45,30 +45,75 @@ export async function generateStructured<T>(
     return await callDemoStructured(options);
   }
 
-  // Attempt external call with 1 retry on parse failure
-  let lastError: unknown;
+  const primaryModel = process.env.AI_MODEL || "gemini-3.8-flash";
+  const fallbackModel = process.env.AI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
+
+  const stageStartTime = Date.now();
+  const MAX_AI_STAGE_TIME_MS = 28000; // Stay strictly under 30 seconds total AI time per stage
+
+  let lastError: unknown = null;
+
+  // 1. Primary Model: At most ONE retry, ONLY for 429/500/503 or timeout
   for (let attempt = 1; attempt <= 2; attempt++) {
+    const elapsed = Date.now() - stageStartTime;
+    const remainingTime = MAX_AI_STAGE_TIME_MS - elapsed;
+    if (remainingTime < 3000) {
+      break;
+    }
+
+    const callTimeout = Math.min(15000, remainingTime);
+
     try {
       if (configuredProvider === "gemini") {
-        return await callGeminiStructured(options, geminiKey, process.env.AI_MODEL || "gemini-3.8-flash");
+        return await callGeminiStructured(options, geminiKey, primaryModel, callTimeout, false);
       }
-      // If other providers unconfigured, fallback to demo
       return await callDemoStructured(options);
-    } catch (err) {
+    } catch (err: unknown) {
       lastError = err;
-      if (attempt === 1) {
-        // Short pause before single retry
-        await new Promise((r) => setTimeout(r, 200));
+      const status = (err as { status?: number })?.status;
+      const isRetryable =
+        (err as { isRetryable?: boolean })?.isRetryable ||
+        status === 429 ||
+        status === 500 ||
+        status === 503 ||
+        status === 408 ||
+        (err as { name?: string })?.name === "TimeoutError";
+
+      // Only retry once on 429/500/503 or timeout, with a short backoff
+      if (attempt === 1 && isRetryable) {
+        const remainingAfterBackoff = MAX_AI_STAGE_TIME_MS - (Date.now() - stageStartTime);
+        if (remainingAfterBackoff > 4000) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+      }
+      break;
+    }
+  }
+
+  // 2. Fallback Model: If primary model times out or returns 429/500/503, try fallback model ONCE
+  if (configuredProvider === "gemini" && fallbackModel && fallbackModel !== primaryModel) {
+    const elapsed = Date.now() - stageStartTime;
+    const remainingTime = MAX_AI_STAGE_TIME_MS - elapsed;
+
+    if (remainingTime >= 4000) {
+      const callTimeout = Math.min(15000, remainingTime);
+      try {
+        return await callGeminiStructured(options, geminiKey, fallbackModel, callTimeout, true);
+      } catch (fallbackErr: unknown) {
+        lastError = fallbackErr;
       }
     }
   }
 
-  // On persistent failure, rethrow if throwOnError is requested so honest status can be reported
+  // 3. If both models fail, rethrow if throwOnError is requested so honest status is reported
   if (options.throwOnError) {
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(String(lastError || "All AI models failed or timed out"));
   }
 
-  // Otherwise fall back gracefully to demo analysis mode so user task is never permanently blocked
-  console.warn("External AI call failed after retry, falling back to deterministic demo engine:", lastError);
+  // Otherwise fall back gracefully to demo analysis mode
+  console.warn("External AI call failed after retries and fallback model, falling back to demo engine:", lastError);
   return await callDemoStructured(options);
 }

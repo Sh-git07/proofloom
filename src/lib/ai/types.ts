@@ -25,6 +25,7 @@ export interface AIProviderResult<T> {
   data: T;
   provider: "gemini" | "demo" | "openai" | "anthropic";
   modelUsed: string;
+  isFallback?: boolean;
   isSimulated: boolean;
   latencyMs: number;
 }

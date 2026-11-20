@@ -9,6 +9,7 @@ export default async function SettingsPage() {
 
   const aiProvider = process.env.AI_PROVIDER || "gemini";
   const aiModel = process.env.AI_MODEL || "gemini-3.8-flash";
+  const fallbackAiModel = process.env.AI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
   const isApiKeyConfigured = Boolean(
     process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5
   );
@@ -59,6 +60,7 @@ export default async function SettingsPage() {
         userRole={context?.role || "viewer"}
         activeAiProvider={aiProvider}
         activeAiModel={aiModel}
+        fallbackAiModel={fallbackAiModel}
         isApiKeyConfigured={isApiKeyConfigured}
       />
     </div>

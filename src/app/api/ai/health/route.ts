@@ -4,12 +4,14 @@ import { getCurrentUserContext } from "@/lib/auth-helpers";
 export async function GET() {
   const startTime = Date.now();
   const modelName = process.env.AI_MODEL || "gemini-3.8-flash";
+  const fallbackModel = process.env.AI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
   const provider = process.env.AI_PROVIDER || "gemini";
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (provider === "demo") {
     return NextResponse.json({
       model: modelName,
+      fallbackModel,
       provider: "demo",
       status: "DEMO_MODE",
       httpStatus: 200,
@@ -23,6 +25,7 @@ export async function GET() {
   if (!apiKey || apiKey.length < 5) {
     return NextResponse.json({
       model: modelName,
+      fallbackModel,
       provider: "gemini",
       status: "KEY_MISSING",
       httpStatus: 0,
@@ -33,14 +36,21 @@ export async function GET() {
     });
   }
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
     const response = await fetch(url, {
       method: "POST",
+      signal: controller.signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: "ping" }] }],
-        generationConfig: { maxOutputTokens: 1 },
+        generationConfig: {
+          maxOutputTokens: 1,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
     });
 
@@ -123,5 +133,7 @@ export async function GET() {
       isHealthy: false,
       lastChecked: new Date().toISOString(),
     });
+  } finally {
+    clearTimeout(timer);
   }
 }

@@ -39,12 +39,14 @@ export function SettingsWorkbench({
   userRole,
   activeAiProvider,
   activeAiModel,
+  fallbackAiModel = "gemini-3.1-flash-lite",
   isApiKeyConfigured,
 }: {
   initialSettings: SettingsData;
   userRole: string;
   activeAiProvider: string;
   activeAiModel: string;
+  fallbackAiModel?: string;
   isApiKeyConfigured: boolean;
 }) {
   const isAdmin = userRole === "admin";
@@ -219,14 +221,18 @@ export function SettingsWorkbench({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-mono text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-mono text-xs">
           <div className="p-3 bg-[#F4F1E8] brutal-border">
             <span className="text-[#637367] block text-[10px] uppercase">ACTIVE PROVIDER</span>
             <span className="font-bold text-[#17251C] text-sm uppercase">{activeAiProvider}</span>
           </div>
           <div className="p-3 bg-[#F4F1E8] brutal-border">
-            <span className="text-[#637367] block text-[10px] uppercase">MODEL IDENTIFIER (ENV)</span>
+            <span className="text-[#637367] block text-[10px] uppercase">PRIMARY MODEL (AI_MODEL)</span>
             <span className="font-bold text-[#17251C] text-sm">{activeAiModel}</span>
+          </div>
+          <div className="p-3 bg-[#F4F1E8] brutal-border">
+            <span className="text-[#637367] block text-[10px] uppercase">FALLBACK (AI_FALLBACK_MODEL)</span>
+            <span className="font-bold text-[#17251C] text-sm">{fallbackAiModel}</span>
           </div>
         </div>
 
