@@ -1,10 +1,17 @@
 import { LoginForm } from "./LoginForm";
 import Link from "next/link";
 import { ShieldCheck, ArrowLeft } from "lucide-react";
+import { getCurrentUserContext } from "@/lib/auth-helpers";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const context = await getCurrentUserContext();
+  if (context?.user && context?.organisation) {
+    redirect("/overview");
+  }
+
   const isDemoEnabled =
     process.env.DEMO_MODE_ENABLED === "true" ||
     process.env.DEMO_MODE_ENABLED === "1";

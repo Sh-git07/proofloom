@@ -4,7 +4,21 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
-  const isAuthRoute = path === "/login" || path === "/demo";
+  // Never redirect requests that are going to public, auth, or help pages:
+  // /login, /signup, /demo, /help, /, /reset-password, /auth/*, etc.
+  const isNeverRedirectRoute =
+    path === "/" ||
+    path === "/login" ||
+    path === "/signup" ||
+    path === "/demo" ||
+    path === "/reset-password" ||
+    path.startsWith("/help") ||
+    path.startsWith("/auth/");
+
+  if (isNeverRedirectRoute) {
+    return NextResponse.next({ request });
+  }
+
   const isAppRoute =
     path.startsWith("/overview") ||
     path.startsWith("/studio") ||
@@ -15,36 +29,26 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/drift") ||
     path.startsWith("/insights") ||
     path.startsWith("/team") ||
-    path.startsWith("/settings") ||
-    path.startsWith("/help");
+    path.startsWith("/settings");
 
-  // Skip auth checks on non-app/non-auth routes immediately without touching Supabase
-  if (!isAuthRoute && !isAppRoute) {
+  // Non-app routes (e.g. static assets, public endpoints) pass through without redirection
+  if (!isAppRoute) {
     return NextResponse.next({ request });
   }
 
   const hasAuthCookie = request.cookies
     .getAll()
-    .some((c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token"));
+    .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
 
-  // If trying to access protected app routes without any auth cookie, redirect immediately
-  if (!hasAuthCookie && isAppRoute) {
+  // If trying to access protected app routes without any auth cookie, redirect immediately to /login
+  if (!hasAuthCookie) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("redirect", path);
     return NextResponse.redirect(redirectUrl);
   }
 
-  // For RSC / client page transitions where the user has an auth cookie:
-  // Bypass external Supabase Auth network call in middleware.
-  // The destination Server Component (AppLayout) validates the user and enforces RLS.
-  const isRscRequest =
-    request.headers.get("rsc") === "1" || request.nextUrl.searchParams.has("_rsc");
-  if (isRscRequest && hasAuthCookie && isAppRoute) {
-    return NextResponse.next({ request });
-  }
-
-  // For non-RSC full page navigations, manage session via @supabase/ssr
+  // Manage session via @supabase/ssr
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -72,21 +76,44 @@ export async function middleware(request: NextRequest) {
 
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
 
-  // If trying to access protected app routes without authentication
-  if (!user && isAppRoute) {
+  // If session is invalid or user does not exist
+  if (!user || authError) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("redirect", path);
-    return NextResponse.redirect(redirectUrl);
+    const redirectResponse = NextResponse.redirect(redirectUrl);
+    // Explicitly delete stale/invalid auth cookies
+    request.cookies.getAll().forEach((c) => {
+      if (c.name.startsWith("sb-") || c.name.includes("auth-token")) {
+        redirectResponse.cookies.delete(c.name);
+      }
+    });
+    return redirectResponse;
   }
 
-  // If already authenticated and visiting login or demo
-  if (user && isAuthRoute) {
+  // Verify organisation membership
+  const { data: member } = await supabase
+    .from("organisation_members")
+    .select("id")
+    .eq("user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (!member) {
+    // User has no valid organisation membership: redirect to /login and clear cookies
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/overview";
-    return NextResponse.redirect(redirectUrl);
+    redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("redirect", path);
+    const redirectResponse = NextResponse.redirect(redirectUrl);
+    request.cookies.getAll().forEach((c) => {
+      if (c.name.startsWith("sb-") || c.name.includes("auth-token")) {
+        redirectResponse.cookies.delete(c.name);
+      }
+    });
+    return redirectResponse;
   }
 
   return supabaseResponse;

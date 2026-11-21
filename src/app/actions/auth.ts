@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { clearUserContextCache, getCurrentUserContext } from "@/lib/auth-helpers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 
 export async function signInDemoUser(role: "admin" | "brand_manager" | "creator" | "reviewer") {
   const isDemoEnabled = process.env.DEMO_MODE_ENABLED === "true" || process.env.DEMO_MODE_ENABLED === "1";
@@ -242,5 +243,18 @@ export async function signOutUser() {
   clearUserContextCache();
   const supabase = await createClient();
   await supabase.auth.signOut();
+
+  try {
+    const cookieStore = await cookies();
+    const allCookies = cookieStore.getAll();
+    for (const c of allCookies) {
+      if (c.name.startsWith("sb-") || c.name.includes("auth-token")) {
+        cookieStore.delete(c.name);
+      }
+    }
+  } catch (err) {
+    console.error("Error clearing auth cookies on signout:", err);
+  }
+
   redirect("/");
 }
