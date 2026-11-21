@@ -50,70 +50,130 @@ export async function generateStructured<T>(
 
   const stageStartTime = Date.now();
   const MAX_AI_STAGE_TIME_MS = 28000; // Stay strictly under 30 seconds total AI time per stage
+  const HARD_TIMEOUT_MS = 15000;
+  const HEDGE_DELAY_MS = 8000;
 
-  let lastError: unknown = null;
+  if (configuredProvider !== "gemini") {
+    return await callDemoStructured(options);
+  }
 
-  // 1. Primary Model: At most ONE retry, ONLY for 429/500/503 or timeout
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Hedged Request Pattern:
+  // 1. Send request to primaryModel with 15s hard timeout.
+  // 2. If no response after 8 seconds, OR if primary returns 429/500/503/timeout, immediately start fallbackModel in parallel.
+  // 3. Use whichever returns valid JSON first (aborting the other).
+  // 4. Budget capped at 30 seconds total per stage.
+
+  let primaryAbort = new AbortController();
+  let fallbackAbort = new AbortController();
+
+  let fallbackStarted = false;
+  let primaryError: unknown = null;
+  let fallbackError: unknown = null;
+
+  const runPrimary = async (): Promise<AIProviderResult<T>> => {
     const elapsed = Date.now() - stageStartTime;
-    const remainingTime = MAX_AI_STAGE_TIME_MS - elapsed;
-    if (remainingTime < 3000) {
-      break;
+    const remainingTime = Math.min(HARD_TIMEOUT_MS, MAX_AI_STAGE_TIME_MS - elapsed);
+    if (remainingTime < 1000) {
+      throw new Error("AI stage budget exceeded before primary model invocation");
     }
+    return await callGeminiStructured(
+      { ...options, abortSignal: primaryAbort.signal },
+      geminiKey,
+      primaryModel,
+      remainingTime,
+      false
+    );
+  };
 
-    const callTimeout = Math.min(15000, remainingTime);
-
-    try {
-      if (configuredProvider === "gemini") {
-        return await callGeminiStructured(options, geminiKey, primaryModel, callTimeout, false);
-      }
-      return await callDemoStructured(options);
-    } catch (err: unknown) {
-      lastError = err;
-      const status = (err as { status?: number })?.status;
-      const isRetryable =
-        (err as { isRetryable?: boolean })?.isRetryable ||
-        status === 429 ||
-        status === 500 ||
-        status === 503 ||
-        status === 408 ||
-        (err as { name?: string })?.name === "TimeoutError";
-
-      // Only retry once on 429/500/503 or timeout, with a short backoff
-      if (attempt === 1 && isRetryable) {
-        const remainingAfterBackoff = MAX_AI_STAGE_TIME_MS - (Date.now() - stageStartTime);
-        if (remainingAfterBackoff > 4000) {
-          await new Promise((r) => setTimeout(r, 600));
-          continue;
-        }
-      }
-      break;
-    }
-  }
-
-  // 2. Fallback Model: If primary model times out or returns 429/500/503, try fallback model ONCE
-  if (configuredProvider === "gemini" && fallbackModel && fallbackModel !== primaryModel) {
+  const runFallback = async (): Promise<AIProviderResult<T>> => {
     const elapsed = Date.now() - stageStartTime;
-    const remainingTime = MAX_AI_STAGE_TIME_MS - elapsed;
-
-    if (remainingTime >= 4000) {
-      const callTimeout = Math.min(15000, remainingTime);
-      try {
-        return await callGeminiStructured(options, geminiKey, fallbackModel, callTimeout, true);
-      } catch (fallbackErr: unknown) {
-        lastError = fallbackErr;
-      }
+    const remainingTime = Math.min(HARD_TIMEOUT_MS, MAX_AI_STAGE_TIME_MS - elapsed);
+    if (remainingTime < 1000) {
+      throw new Error("AI stage budget exceeded before fallback model invocation");
     }
-  }
+    return await callGeminiStructured(
+      { ...options, abortSignal: fallbackAbort.signal },
+      geminiKey,
+      fallbackModel,
+      remainingTime,
+      true
+    );
+  };
 
-  // 3. If both models fail, rethrow if throwOnError is requested so honest status is reported
-  if (options.throwOnError) {
-    throw lastError instanceof Error
-      ? lastError
-      : new Error(String(lastError || "All AI models failed or timed out"));
-  }
+  try {
+    const result = await new Promise<AIProviderResult<T>>((resolve, reject) => {
+      let isSettled = false;
+      let primaryFailed = false;
+      let fallbackFailed = false;
 
-  // Otherwise fall back gracefully to demo analysis mode
-  console.warn("External AI call failed after retries and fallback model, falling back to demo engine:", lastError);
-  return await callDemoStructured(options);
+      const triggerFallback = () => {
+        if (fallbackStarted || isSettled) return;
+        fallbackStarted = true;
+
+        runFallback()
+          .then((res) => {
+            if (!isSettled) {
+              isSettled = true;
+              primaryAbort.abort();
+              resolve(res);
+            }
+          })
+          .catch((err) => {
+            fallbackError = err;
+            fallbackFailed = true;
+            if (primaryFailed && !isSettled) {
+              isSettled = true;
+              reject(primaryError || fallbackError);
+            }
+          });
+      };
+
+      // 8-second hedge timer
+      const hedgeTimer = setTimeout(() => {
+        triggerFallback();
+      }, HEDGE_DELAY_MS);
+
+      // Start primary call
+      runPrimary()
+        .then((res) => {
+          clearTimeout(hedgeTimer);
+          if (!isSettled) {
+            isSettled = true;
+            fallbackAbort.abort();
+            resolve(res);
+          }
+        })
+        .catch((err) => {
+          clearTimeout(hedgeTimer);
+          primaryError = err;
+          primaryFailed = true;
+
+          const status = (err as { status?: number })?.status;
+          const isRetryableError =
+            (err as { isRetryable?: boolean })?.isRetryable ||
+            status === 429 ||
+            status === 500 ||
+            status === 503 ||
+            status === 408 ||
+            (err as { name?: string })?.name === "TimeoutError";
+
+          // If primary immediately failed with 429/500/503/timeout or other error, trigger fallback immediately
+          if (!fallbackStarted) {
+            triggerFallback();
+          } else if (fallbackFailed && !isSettled) {
+            isSettled = true;
+            reject(primaryError || fallbackError);
+          }
+        });
+    });
+
+    return result;
+  } catch (err: unknown) {
+    if (options.throwOnError) {
+      throw err instanceof Error ? err : new Error(String(err || "All AI models failed or timed out"));
+    }
+
+    console.warn("External AI call failed after hedged fallback model, falling back to demo engine:", err);
+    return await callDemoStructured(options);
+  }
 }

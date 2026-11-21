@@ -48,6 +48,17 @@ export async function callGeminiStructured<T>(
     controller.abort();
   }, timeoutMs);
 
+  // If external abort signal passed (e.g. from hedged racing), abort when it fires
+  if (options.abortSignal) {
+    if (options.abortSignal.aborted) {
+      controller.abort();
+    } else {
+      options.abortSignal.addEventListener("abort", () => {
+        controller.abort();
+      });
+    }
+  }
+
   try {
     const response = await fetch(url, {
       method: "POST",

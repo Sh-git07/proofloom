@@ -20,6 +20,7 @@ export interface AIRequestOptions<T> {
   allowExternalAI?: boolean;
   throwOnError?: boolean;
   responseSchema?: Record<string, unknown>;
+  abortSignal?: AbortSignal;
 }
 
 export interface AIProviderResult<T> {

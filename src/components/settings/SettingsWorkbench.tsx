@@ -260,10 +260,14 @@ export function SettingsWorkbench({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="p-2.5 bg-white brutal-border">
-              <span className="text-[#637367] text-[10px] block uppercase">MODEL TESTED</span>
-              <span className="font-bold text-[#17251C] text-xs block truncate">{health.model}</span>
+              <span className="text-[#637367] text-[10px] block uppercase">PRIMARY MODEL</span>
+              <span className="font-bold text-[#17251C] text-xs block truncate">{activeAiModel}</span>
+            </div>
+            <div className="p-2.5 bg-white brutal-border">
+              <span className="text-[#637367] text-[10px] block uppercase">FALLBACK MODEL</span>
+              <span className="font-bold text-[#17251C] text-xs block truncate">{fallbackAiModel}</span>
             </div>
             <div className="p-2.5 bg-white brutal-border">
               <span className="text-[#637367] text-[10px] block uppercase">LAST CALL STATUS</span>

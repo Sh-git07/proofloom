@@ -72,6 +72,7 @@ export async function GET() {
     if (httpStatus === 200) {
       return NextResponse.json({
         model: modelName,
+        fallbackModel,
         provider: "gemini",
         status: "HEALTHY",
         httpStatus: 200,
@@ -88,6 +89,7 @@ export async function GET() {
     if (httpStatus === 404) {
       return NextResponse.json({
         model: modelName,
+        fallbackModel,
         provider: "gemini",
         status: "RETIRED",
         httpStatus: 404,
@@ -100,6 +102,7 @@ export async function GET() {
 
     return NextResponse.json({
       model: modelName,
+      fallbackModel,
       provider: "gemini",
       status: "ERROR",
       httpStatus,
@@ -125,6 +128,7 @@ export async function GET() {
 
     return NextResponse.json({
       model: modelName,
+      fallbackModel,
       provider: "gemini",
       status: "NETWORK_ERROR",
       httpStatus: 0,

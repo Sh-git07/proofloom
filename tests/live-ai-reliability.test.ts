@@ -60,9 +60,9 @@ describe("Live AI Reliability, Timeout & Fallback Tests", () => {
   });
 
   // =========================================================================
-  // 2. HTTP 503 triggers one retry, then attempts and succeeds on fallback model
+  // 2. HTTP 503 on primary triggers immediate fallback model
   // =========================================================================
-  it("retries once on 503 and switches to fallback model when primary continues failing", async () => {
+  it("immediately starts fallback model on 503 and succeeds on fallback model", async () => {
     const requestedUrls: string[] = [];
 
     global.fetch = vi.fn().mockImplementation(async (url: string | URL | Request) => {
@@ -113,11 +113,11 @@ describe("Live AI Reliability, Timeout & Fallback Tests", () => {
     expect(result.isFallback).toBe(true);
     expect(result.data.claims[0].claim).toBe("18% boost");
 
-    // 2. Verified call sequence: primary attempt 1, primary retry attempt 2, fallback model attempt
+    // 2. Verified call sequence: primary attempt failed with 503, immediately started fallback model
     const primaryCalls = requestedUrls.filter((u) => u.includes("gemini-3.8-flash"));
     const fallbackCalls = requestedUrls.filter((u) => u.includes("gemini-3.1-flash-lite"));
 
-    expect(primaryCalls.length).toBe(2); // At most 1 retry
+    expect(primaryCalls.length).toBeGreaterThanOrEqual(1);
     expect(fallbackCalls.length).toBe(1); // Tried fallback model
   });
 
@@ -170,5 +170,83 @@ describe("Live AI Reliability, Timeout & Fallback Tests", () => {
     expect(stageDetail).toContain("AI: failed, rules only");
     expect(stageDetail).toContain("warning: AI unavailable");
     expect(headerLabel).toBe("LIVE AI (GEMINI): voice analysis unavailable, rules only");
+  });
+
+  // =========================================================================
+  // 4. Hedged request: slow primary (>8s) triggers parallel fast fallback which wins
+  // =========================================================================
+  it("hedges request when primary is slow (>8s), fast fallback starts and wins", async () => {
+    vi.useFakeTimers();
+
+    global.fetch = vi.fn().mockImplementation((url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = url.toString();
+
+      // Slow primary hangs
+      if (urlStr.includes("gemini-3.8-flash")) {
+        return new Promise((resolve, reject) => {
+          if (init?.signal) {
+            init.signal.addEventListener("abort", () => {
+              const err = new Error("Aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          }
+          // Primary would take 12 seconds to respond
+          setTimeout(() => {
+            resolve(
+              new Response(
+                JSON.stringify({
+                  candidates: [
+                    { content: { parts: [{ text: JSON.stringify({ claims: [{ claim: "slow primary claim" }] }) }] } },
+                  ],
+                }),
+                { status: 200, headers: { "Content-Type": "application/json" } }
+              )
+            );
+          }, 12000);
+        });
+      }
+
+      // Fast fallback responds in 100ms
+      if (urlStr.includes("gemini-3.1-flash-lite")) {
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve(
+              new Response(
+                JSON.stringify({
+                  candidates: [
+                    { content: { parts: [{ text: JSON.stringify({ claims: [{ claim: "fast fallback claim" }] }) }] } },
+                  ],
+                }),
+                { status: 200, headers: { "Content-Type": "application/json" } }
+              )
+            );
+          }, 100);
+        });
+      }
+
+      return Promise.resolve(new Response("Not found", { status: 404 }));
+    });
+
+    const promise = generateStructured({
+      task: "claim_extraction",
+      system: "extract",
+      prompt: "test content",
+      schema: z.object({
+        claims: z.array(z.object({ claim: z.string() })),
+      }),
+      throwOnError: true,
+    });
+
+    // Advance time past the 8-second hedge delay and the 100ms fallback time
+    await vi.advanceTimersByTimeAsync(8150);
+
+    const result = await promise;
+
+    expect(result.modelUsed).toBe("gemini-3.1-flash-lite");
+    expect(result.isFallback).toBe(true);
+    expect(result.data.claims[0].claim).toBe("fast fallback claim");
+
+    vi.useRealTimers();
   });
 });
