@@ -23,6 +23,9 @@ import {
   FileText,
   Database,
 } from "lucide-react";
+import { computeChecklist } from "@/lib/guidance/checklist";
+import { OverviewChecklist } from "@/components/guidance/OverviewChecklist";
+import { HelpTip } from "@/components/guidance/HelpTip";
 
 export default async function OverviewPage() {
   const context = await getCurrentUserContext();
@@ -114,6 +117,29 @@ export default async function OverviewPage() {
   const expiredFactsCount =
     approvedFacts?.filter((f) => f.approval_status === "EXPIRED").length || 0;
 
+  const rewritesCount = activityLogs.filter((l) =>
+    l.action?.toUpperCase().includes("REWRITE")
+  ).length;
+  const submissionsCount =
+    (pendingReviewCount || 0) +
+    activityLogs.filter(
+      (l) =>
+        l.action?.toUpperCase().includes("SUBMIT") ||
+        l.action?.toUpperCase().includes("REVIEW")
+    ).length;
+
+  const checklistItems = computeChecklist(context?.role || "creator", {
+    auditsCount: totalAudits,
+    rewritesAcceptedCount: rewritesCount,
+    submissionsCount,
+    verifiedClaimsCount: verifiedClaimsCount || 0,
+    approvedFactsCount: activeFactsCount,
+    sourceDocsCount: activeFactsCount > 0 ? 1 : 0,
+    driftInsightsCount: driftAlerts.length,
+    resolvedFindingsCount: resolvedIssuesCount || 0,
+    teamMembersCount: 4,
+  });
+
   return (
     <div className="space-y-6">
       {/* 1. Engineering Header Console */}
@@ -145,16 +171,34 @@ export default async function OverviewPage() {
         </div>
       </div>
 
-      {/* 2. 6x KPI Telemetry Grid (Engineering Control Panels) */}
+      {/* 2. Getting Started Checklist (Dismissible, Role-Appropriate) */}
+      <OverviewChecklist
+        role={context?.role || "creator"}
+        items={checklistItems}
+        isDismissed={Boolean(context?.user.onboarding?.checklist_dismissed)}
+      />
+
+      {/* 3. 6x KPI Telemetry Grid (Engineering Control Panels) */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <MetricPanel
-          label="INTEGRITY INDEX"
-          value={avgScore}
-          unit="/100"
-          subtext="Target ≥ 85.0"
-          status={avgScore >= 80 ? "success" : avgScore >= 60 ? "warning" : "critical"}
-          badge="HEALTH"
-        />
+        <div className="relative">
+          <MetricPanel
+            label="INTEGRITY INDEX"
+            value={avgScore}
+            unit="/100"
+            subtext="Target ≥ 85.0"
+            status={avgScore >= 80 ? "success" : avgScore >= 60 ? "warning" : "critical"}
+            badge="HEALTH"
+          />
+          <div className="absolute top-2.5 right-2.5">
+            <HelpTip
+              text={[
+                "A quantitative decision-support metric (0-100) reflecting factual accuracy, voice consistency, and terminology adherence.",
+                "It is a guidance indicator, not a formal legal guarantee or compliance indemnity."
+              ]}
+              articleHash="integrity-score"
+            />
+          </div>
+        </div>
 
         <MetricPanel
           label="AUDITS COMPLETED"
@@ -172,13 +216,21 @@ export default async function OverviewPage() {
           badge="QUEUE"
         />
 
-        <MetricPanel
-          label="CRITICAL FINDINGS"
-          value={criticalFindingsCount || 0}
-          subtext="Blocking publication"
-          status={criticalFindingsCount ? "critical" : "success"}
-          badge="RISK"
-        />
+        <div className="relative">
+          <MetricPanel
+            label="CRITICAL FINDINGS"
+            value={criticalFindingsCount || 0}
+            subtext="Blocking publication"
+            status={criticalFindingsCount ? "critical" : "success"}
+            badge="RISK"
+          />
+          <div className="absolute top-2.5 right-2.5">
+            <HelpTip
+              text="High-risk brand or legal violation (e.g. contradicted fact, banned word). Strictly blocks publishing approval."
+              articleHash="critical-finding-block"
+            />
+          </div>
+        </div>
 
         <MetricPanel
           label="VERIFIED CLAIMS"
@@ -350,6 +402,10 @@ export default async function OverviewPage() {
                 <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-[#17251C]">
                   SYSTEMIC DRIFT RADAR
                 </h3>
+                <HelpTip
+                  text="Aggregated patterns of repeated rule violations, common dismissals, and challenged policies to guide brand guideline improvements."
+                  articleHash="brand-drift"
+                />
               </div>
               <Link
                 href="/drift"

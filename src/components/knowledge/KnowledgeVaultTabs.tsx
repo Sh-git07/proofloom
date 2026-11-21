@@ -193,7 +193,7 @@ export function KnowledgeVaultTabs({
       </div>
 
       {/* Source Documents shortcut — additive, separate page */}
-      <div className="brutal-panel bg-[#F4F1E8] p-2 flex items-center justify-between gap-2">
+      <div data-tour="tour-source-documents" className="brutal-panel bg-[#F4F1E8] p-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs font-mono text-[#637367]">
           <FileText className="w-3.5 h-3.5" />
           <span>07 SOURCE DOCUMENTS — Upload evidence PDFs, DOCXs, TXTs and review extracted facts</span>

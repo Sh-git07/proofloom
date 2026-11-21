@@ -19,6 +19,7 @@ import {
   UserCheck,
   Zap,
 } from "lucide-react";
+import { HelpTip } from "@/components/guidance/HelpTip";
 
 export interface ImpactItem {
   id: string;
@@ -555,12 +556,18 @@ export function ReviewQueueWorkbench({
 
                     {/* CRITICAL OVERRIDE GATING: Server-Enforced in PostgreSQL */}
                     {decision === "APPROVED" && unresolvedCriticalCount > 0 && (
-                      <div className="p-3.5 bg-[#D94C4C]/15 border-2 border-[#D94C4C] space-y-2.5">
-                        <div className="flex items-center space-x-2 text-[#D94C4C]">
-                          <ShieldAlert className="w-5 h-5 shrink-0" />
-                          <span className="font-extrabold uppercase">
-                            APPROVAL BLOCKED: {unresolvedCriticalCount} UNRESOLVED CRITICAL FINDING(S)
-                          </span>
+                      <div data-tour="tour-critical-block" className="p-3.5 bg-[#D94C4C]/15 border-2 border-[#D94C4C] space-y-2.5">
+                        <div className="flex items-center justify-between text-[#D94C4C]">
+                          <div className="flex items-center space-x-2">
+                            <ShieldAlert className="w-5 h-5 shrink-0" />
+                            <span className="font-extrabold uppercase">
+                              APPROVAL BLOCKED: {unresolvedCriticalCount} UNRESOLVED CRITICAL FINDING(S)
+                            </span>
+                          </div>
+                          <HelpTip
+                            text="Governance safety lock: content items with unresolved CRITICAL findings cannot be approved until remediated or granted an admin exception."
+                            articleHash="critical-finding-block"
+                          />
                         </div>
                         <p className="text-[11px] text-[#17251C]">
                           The database function will reject standard approval attempts. Only an authorized Executive Administrator can override critical findings with an immutable justification.
@@ -655,13 +662,17 @@ export function ReviewQueueWorkbench({
 
       {/* 3. TAB: BRAND MEMORY COURT QUEUE */}
       {activeTab === "court" && (
-        <div className="space-y-4">
+        <div data-tour="tour-challenges" className="space-y-4">
           <div className="flex items-center justify-between border-b-2 border-[#253C2B] pb-2 font-mono text-xs">
             <div className="flex items-center space-x-2">
               <Scale className="w-4 h-4 text-[#16834A]" />
               <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-[#17251C]">
                 BRAND MEMORY COURT &mdash; CONTESTED FINDINGS QUEUE ({challengesList.length})
               </h3>
+              <HelpTip
+                text="Records reviewer determinations on creator appeals (UPHOLD, REVERSE, EXCEPTION), creating an immutable precedent record."
+                articleHash="challenging-findings"
+              />
             </div>
             <span className="text-[10px] text-[#637367]">
               Adjudicate creator challenges with precedent-setting rulings

@@ -34,6 +34,7 @@ import {
   Scale,
   Send,
 } from "lucide-react";
+import { HelpTip } from "@/components/guidance/HelpTip";
 
 interface AuditStage {
   id: string;
@@ -513,6 +514,7 @@ export function AuditReportView({
             audit.status === "COMPLETED" &&
             userRole !== "reviewer" && (
               <Button
+                data-tour="tour-submit-review"
                 variant="lime"
                 size="md"
                 disabled={isSubmittingReview}
@@ -692,9 +694,18 @@ export function AuditReportView({
             {/* Score Card */}
             <div className="lg:col-span-1 brutal-panel bg-white p-5 flex flex-col justify-between">
               <div>
-                <span className="font-mono text-[10px] font-bold text-[#637367] uppercase block">
-                  BRAND INTEGRITY SCORE
-                </span>
+                <div className="flex items-center space-x-1">
+                  <span className="font-mono text-[10px] font-bold text-[#637367] uppercase block">
+                    BRAND INTEGRITY SCORE
+                  </span>
+                  <HelpTip
+                    text={[
+                      "A quantitative decision-support metric (0-100) reflecting factual accuracy, voice consistency, and terminology adherence.",
+                      "It is a guidance indicator, not a formal legal guarantee or compliance indemnity."
+                    ]}
+                    articleHash="integrity-score"
+                  />
+                </div>
                 <div className="flex items-baseline space-x-2 mt-2">
                   <span
                     className={`font-mono font-black text-6xl tracking-tight ${
@@ -726,7 +737,13 @@ export function AuditReportView({
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-[#637367]">ENGINE MODE:</span>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-[#637367]">ENGINE MODE:</span>
+                    <HelpTip
+                      text="Shows whether the audit was processed via Live AI (Gemini primary/fallback with hedged execution) or rule-based fallback heuristics."
+                      articleHash="audit-engine-modes"
+                    />
+                  </div>
                   <span className={`font-bold ${engineMode.includes("partial") || (engineMode === "RULES ONLY" && audit.mode === "live_ai") ? "text-[#D94C4C]" : "text-[#17251C]"}`}>
                     {engineMode}
                   </span>
@@ -737,9 +754,15 @@ export function AuditReportView({
             {/* Dimension Breakdown Panels */}
             <div className="lg:col-span-3 brutal-panel bg-white p-5 space-y-4">
               <div className="flex items-center justify-between border-b-2 border-[#253C2B] pb-2">
-                <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-[#17251C]">
-                  GOVERNANCE DIMENSION BREAKDOWN
-                </h3>
+                <div className="flex items-center space-x-1.5">
+                  <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-[#17251C]">
+                    GOVERNANCE DIMENSION BREAKDOWN
+                  </h3>
+                  <HelpTip
+                    text="Independent dimensions evaluating factual evidence, brand voice archetype, legal terminology, reading ease, and visual assets."
+                    articleHash="integrity-score"
+                  />
+                </div>
                 <span className="font-mono text-[10px] text-[#637367]">
                   Target Threshold ≥ 85.0
                 </span>
@@ -810,8 +833,12 @@ export function AuditReportView({
                     </>
                   ) : (
                     <>
-                      <span className="text-sm font-bold text-[#637367] mt-2 block">
-                        NOT CHECKED
+                      <span className="text-sm font-bold text-[#637367] mt-2 flex items-center space-x-1">
+                        <span>NOT CHECKED</span>
+                        <HelpTip
+                          text="Indicates this dimension was bypassed or not evaluated (e.g. text-only copy without an attached image). Requires manual review."
+                          articleHash="not-checked"
+                        />
                       </span>
                       <span className="text-[9px] text-[#637367] block mt-0.5">Excluded from total</span>
                     </>
@@ -922,11 +949,21 @@ export function AuditReportView({
             </div>
 
             {/* Right 7-cols: Interactive Findings & Provenance Drawer */}
-            <div className="lg:col-span-7 space-y-4">
+            <div data-tour="tour-score-findings" className="lg:col-span-7 space-y-4">
               {/* Filter Tabs */}
               <div className="brutal-panel bg-white p-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
                 <div className="flex items-center space-x-1.5 overflow-x-auto">
-                  <span className="text-[#637367] font-bold text-[10px] uppercase pr-1">SEVERITY:</span>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-[#637367] font-bold text-[10px] uppercase pr-1">SEVERITY:</span>
+                    <HelpTip
+                      text={[
+                        "CRITICAL: High-risk breach (contradicted claim, banned word). Blocks publishing approval.",
+                        "HIGH/MEDIUM: Tone or unverified claim requiring manager attention.",
+                        "LOW: Stylistic guidance. Non-blocking."
+                      ]}
+                      articleHash="severity-levels"
+                    />
+                  </div>
                   {["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"].map((sev) => (
                     <button
                       key={sev}
@@ -943,7 +980,13 @@ export function AuditReportView({
                 </div>
 
                 <div className="flex items-center space-x-1.5 overflow-x-auto">
-                  <span className="text-[#637367] font-bold text-[10px] uppercase pr-1">DIMENSION:</span>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-[#637367] font-bold text-[10px] uppercase pr-1">DIMENSION:</span>
+                    <HelpTip
+                      text="Independent compliance dimensions: claim truth, voice archetype, terminology, text readability, and visual aesthetics."
+                      articleHash="audit-stages"
+                    />
+                  </div>
                   {["ALL", "claims", "voice", "terminology", "accessibility", "visual"].map((cat) => (
                     <button
                       key={cat}
@@ -1143,6 +1186,7 @@ export function AuditReportView({
                               {!finding.is_resolved && finding.suggested_replacement && (
                                 <button
                                   type="button"
+                                  data-tour="tour-accept-rewrite"
                                   disabled={isAcceptingRewrite === finding.id}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -1178,17 +1222,23 @@ export function AuditReportView({
                                 </button>
                               )}
 
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setChallengeFinding(finding);
-                                }}
-                                className="brutal-btn brutal-btn-secondary px-2.5 py-1.5 text-[11px] flex items-center space-x-1"
-                              >
-                                <Scale className="w-3 h-3 text-[#E6A23C]" />
-                                <span>CHALLENGE (COURT)</span>
-                              </button>
+                              <div className="inline-flex items-center space-x-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setChallengeFinding(finding);
+                                  }}
+                                  className="brutal-btn brutal-btn-secondary px-2.5 py-1.5 text-[11px] flex items-center space-x-1"
+                                >
+                                  <Scale className="w-3 h-3 text-[#E6A23C]" />
+                                  <span>CHALLENGE (COURT)</span>
+                                </button>
+                                <HelpTip
+                                  text="Creators can appeal automated findings in Brand Memory Court. Reviewers evaluate justifications and log precedent."
+                                  articleHash="challenging-findings"
+                                />
+                              </div>
 
                               <Link
                                 href={`/provenance?claim=${encodeURIComponent(finding.excerpt)}&auditId=${audit.id}`}

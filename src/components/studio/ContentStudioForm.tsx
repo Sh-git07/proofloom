@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createAuditSubmission } from "@/app/actions/audit";
 import { Button } from "@/components/ui/button";
 import { StatusLED } from "@/components/ui/status-led";
@@ -111,6 +111,7 @@ const DEPARTMENTS = [
 
 export function ContentStudioForm({ isDemoMode = false }: { isDemoMode?: boolean }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [title, setTitle] = React.useState("");
   const [contentType, setContentType] = React.useState("Social media post");
@@ -146,6 +147,20 @@ export function ContentStudioForm({ isDemoMode = false }: { isDemoMode?: boolean
     setBody(sample.body);
     setFormError(null);
   }
+
+  React.useEffect(() => {
+    const sampleParam = searchParams.get("sample");
+    if (sampleParam) {
+      const match =
+        PRESET_SAMPLES.find((s) => s.id === sampleParam) ||
+        (sampleParam === "true"
+          ? PRESET_SAMPLES[3]
+          : PRESET_SAMPLES.find((s) => s.id === "scenario-d"));
+      if (match) {
+        loadSample(match);
+      }
+    }
+  }, [searchParams]);
 
   function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     setImageInputError(null);
@@ -624,6 +639,7 @@ export function ContentStudioForm({ isDemoMode = false }: { isDemoMode?: boolean
 
         <Button
           type="submit"
+          data-tour="tour-run-audit"
           disabled={isSubmitting}
           variant="lime"
           size="lg"

@@ -33,6 +33,7 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
+import { HelpTip } from "@/components/guidance/HelpTip";
 
 interface ReviewFinding {
   id: string;
@@ -458,6 +459,7 @@ export function ReviewDetailWorkbench({
               {/* Approve Button / Critical Block Gate */}
               {unresolvedCriticalCount === 0 ? (
                 <Button
+                  data-tour="tour-review-actions"
                   variant="lime"
                   size="md"
                   onClick={() => {
@@ -471,6 +473,7 @@ export function ReviewDetailWorkbench({
                 </Button>
               ) : isAdmin ? (
                 <Button
+                  data-tour="tour-admin-override"
                   variant="danger"
                   size="md"
                   onClick={() => {
@@ -483,24 +486,37 @@ export function ReviewDetailWorkbench({
                   <span>ADMIN OVERRIDE CRITICAL & APPROVE...</span>
                 </Button>
               ) : (
-                <button
-                  type="button"
-                  disabled
-                  title="Approval is strictly blocked while CRITICAL findings remain unresolved. Only an Administrator can execute an override."
-                  className="px-4 py-2 bg-[#637367]/20 border-2 border-[#637367] text-[#637367] font-mono text-xs font-bold cursor-not-allowed flex items-center space-x-1.5"
-                >
-                  <ShieldAlert className="w-3.5 h-3.5" />
-                  <span>APPROVAL BLOCKED ({unresolvedCriticalCount} CRITICAL FINDINGS)</span>
-                </button>
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    type="button"
+                    data-tour="tour-critical-block"
+                    disabled
+                    title="Approval is strictly blocked while CRITICAL findings remain unresolved. Only an Administrator can execute an override."
+                    className="px-4 py-2 bg-[#637367]/20 border-2 border-[#637367] text-[#637367] font-mono text-xs font-bold cursor-not-allowed flex items-center space-x-1.5"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>APPROVAL BLOCKED ({unresolvedCriticalCount} CRITICAL FINDINGS)</span>
+                  </button>
+                  <HelpTip
+                    text="Approval is strictly blocked while CRITICAL findings remain unresolved. Remediate findings or require Admin override."
+                    articleHash="critical-finding-block"
+                  />
+                </div>
               )}
             </div>
 
             {/* Critical Block Warning Banner */}
             {unresolvedCriticalCount > 0 && (
-              <div className="p-3 bg-[#D94C4C]/10 border-2 border-[#D94C4C] text-[#D94C4C] font-mono text-xs space-y-1">
-                <div className="flex items-center space-x-2 font-bold uppercase">
-                  <ShieldAlert className="w-4 h-4 shrink-0" />
-                  <span>APPROVAL BLOCKED BY POSTGRESQL GOVERNANCE ENGINE</span>
+              <div data-tour="tour-critical-block" className="p-3 bg-[#D94C4C]/10 border-2 border-[#D94C4C] text-[#D94C4C] font-mono text-xs space-y-1">
+                <div className="flex items-center justify-between font-bold uppercase">
+                  <div className="flex items-center space-x-2">
+                    <ShieldAlert className="w-4 h-4 shrink-0" />
+                    <span>APPROVAL BLOCKED BY POSTGRESQL GOVERNANCE ENGINE</span>
+                  </div>
+                  <HelpTip
+                    text="Governance safety lock: content items with unresolved CRITICAL findings cannot be approved until remediated or granted an admin exception."
+                    articleHash="critical-finding-block"
+                  />
                 </div>
                 <p className="text-[11px] leading-relaxed text-[#17251C]">
                   This content contains <strong>{unresolvedCriticalCount} unresolved CRITICAL finding(s)</strong> (e.g. contradicted claims or severe guideline breaches). In accordance with policy, approval is rejected at the database level unless all critical findings are resolved or an Administrator submits a documented executive override (minimum 15 characters).
@@ -512,7 +528,7 @@ export function ReviewDetailWorkbench({
 
         {/* Reviewer Assignment Panel for Brand Manager & Admin */}
         {canAssign && (
-          <form onSubmit={handleAssignReviewer} className="p-3.5 bg-white brutal-border space-y-2">
+          <form data-tour="tour-assign-reviewers" onSubmit={handleAssignReviewer} className="p-3.5 bg-white brutal-border space-y-2">
             <span className="font-mono text-xs font-bold uppercase text-[#17251C] flex items-center space-x-1.5">
               <UserCheck className="w-4 h-4 text-[#16834A]" />
               <span>ASSIGN REVIEWER (BRAND MANAGER / ADMIN)</span>

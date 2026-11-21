@@ -10,6 +10,7 @@ export interface CurrentUserContext {
     email: string;
     fullName: string;
     department?: string;
+    onboarding?: Record<string, unknown>;
   };
   organisation: {
     id: string;
@@ -77,7 +78,7 @@ export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext 
   const [profileRes, memberRes, notifsRes] = await Promise.all([
     supabase
       .from("profiles")
-      .select("full_name, department")
+      .select("full_name, department, onboarding")
       .eq("id", user.id)
       .single(),
     supabase
@@ -124,6 +125,7 @@ export const getCurrentUserContext = cache(async (): Promise<CurrentUserContext 
       email: user.email || "",
       fullName: profile?.full_name || user.user_metadata?.full_name || "Platform User",
       department: profile?.department,
+      onboarding: (profile?.onboarding as Record<string, unknown>) || {},
     },
     organisation: {
       id: org.id,

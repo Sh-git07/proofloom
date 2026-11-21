@@ -16,6 +16,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription } from "@/componen
 import { scanForDriftAction, updateDriftStatusAction, DriftStatusType } from "@/app/actions/drift";
 import { computeClaritySuggestionsAction, reviewClaritySuggestionAction } from "@/app/actions/knowledge";
 import { Button } from "@/components/ui/button";
+import { HelpTip } from "@/components/guidance/HelpTip";
 
 export interface ClaritySuggestionItem {
   id: string;
@@ -172,10 +173,16 @@ export function BrandDriftWorkbench({
     <div className="space-y-6">
       {/* 1. Drift Telemetry Bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="brutal-card p-4 bg-white">
-          <span className="font-mono text-[10px] font-bold text-[#637367] uppercase block">
-            ACTIVE DRIFT PATTERNS
-          </span>
+        <div className="brutal-card p-4 bg-white relative">
+          <div className="flex items-center space-x-1">
+            <span className="font-mono text-[10px] font-bold text-[#637367] uppercase block">
+              ACTIVE DRIFT PATTERNS
+            </span>
+            <HelpTip
+              text="Aggregated patterns of repeated rule violations, common dismissals, and challenged policies to guide brand guideline improvements."
+              articleHash="brand-drift"
+            />
+          </div>
           <span className="font-mono text-2xl font-extrabold text-[#D94C4C]">
             {totalPatterns} CLUSTERS
           </span>

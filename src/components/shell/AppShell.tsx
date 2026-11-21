@@ -21,11 +21,14 @@ import {
   Plus,
   LogOut,
   Building,
+  HelpCircle,
 } from "lucide-react";
 import { OrgRole } from "@/lib/permissions";
 import { signOutUser } from "@/app/actions/auth";
 import { StatusLED } from "@/components/ui/status-led";
 import { NotificationsPopover, NotificationItem } from "@/components/shell/NotificationsPopover";
+import { WelcomeModal } from "@/components/guidance/WelcomeModal";
+import { TourGuide } from "@/components/guidance/TourGuide";
 
 interface AppShellProps {
   user: {
@@ -33,6 +36,7 @@ interface AppShellProps {
     email: string;
     fullName: string;
     department?: string;
+    onboarding?: Record<string, unknown>;
   };
   organisation: {
     id: string;
@@ -48,16 +52,16 @@ interface AppShellProps {
 }
 
 const navItems = [
-  { label: "01 OVERVIEW", href: "/overview", icon: LayoutDashboard },
-  { label: "02 CONTENT STUDIO", href: "/studio", icon: FileEdit },
-  { label: "03 AUDIT HISTORY", href: "/audits", icon: History },
-  { label: "04 BRAND KNOWLEDGE", href: "/knowledge", icon: BookOpen },
-  { label: "05 CLAIM PROVENANCE", href: "/provenance", icon: GitBranch },
-  { label: "06 REVIEW QUEUE", href: "/reviews", icon: CheckSquare },
-  { label: "07 BRAND DRIFT", href: "/drift", icon: TrendingDown },
-  { label: "08 GOVERNANCE INSIGHTS", href: "/insights", icon: BarChart3 },
-  { label: "09 TEAM & ACCESS", href: "/team", icon: Users },
-  { label: "10 SETTINGS", href: "/settings", icon: Settings },
+  { label: "01 OVERVIEW", href: "/overview", icon: LayoutDashboard, tourId: "nav-overview" },
+  { label: "02 CONTENT STUDIO", href: "/studio", icon: FileEdit, tourId: "nav-studio" },
+  { label: "03 AUDIT HISTORY", href: "/audits", icon: History, tourId: "nav-audits" },
+  { label: "04 BRAND KNOWLEDGE", href: "/knowledge", icon: BookOpen, tourId: "nav-knowledge" },
+  { label: "05 CLAIM PROVENANCE", href: "/provenance", icon: GitBranch, tourId: "nav-provenance" },
+  { label: "06 REVIEW QUEUE", href: "/reviews", icon: CheckSquare, tourId: "nav-reviews" },
+  { label: "07 BRAND DRIFT", href: "/drift", icon: TrendingDown, tourId: "nav-drift" },
+  { label: "08 GOVERNANCE INSIGHTS", href: "/insights", icon: BarChart3, tourId: "nav-insights" },
+  { label: "09 TEAM & ACCESS", href: "/team", icon: Users, tourId: "nav-team" },
+  { label: "10 SETTINGS", href: "/settings", icon: Settings, tourId: "nav-settings" },
 ];
 
 export function AppShell({
@@ -71,6 +75,10 @@ export function AppShell({
 }: AppShellProps) {
   const pathname = usePathname();
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
+  const [showWelcome, setShowWelcome] = React.useState(
+    Boolean(user.onboarding && !user.onboarding.welcome_dismissed)
+  );
+  const [isTourActive, setIsTourActive] = React.useState(false);
 
   return (
     <div className="min-h-screen bg-[#F4F1E8] flex">
@@ -108,6 +116,7 @@ export function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
+                data-tour={item.tourId}
                 className={`flex items-center space-x-2.5 px-3 py-2 text-xs font-mono font-bold uppercase transition-all rounded-[2px] ${
                   isActive
                     ? "bg-[#16834A] text-[#B7F28B] brutal-border brutal-shadow-sm translate-x-[-1px] translate-y-[-1px]"
@@ -124,6 +133,26 @@ export function AppShell({
             );
           })}
         </nav>
+
+        {/* Bottom Help Link (NOT an 11th numbered item) */}
+        <div className="p-3 border-t border-[#253C2B] bg-[#F4F1E8]">
+          <Link
+            href="/help"
+            data-tour="nav-help"
+            className={`flex items-center space-x-2.5 px-3 py-2 text-xs font-mono font-bold uppercase transition-all rounded-[2px] ${
+              pathname === "/help"
+                ? "bg-[#16834A] text-[#B7F28B] brutal-border brutal-shadow-sm translate-x-[-1px] translate-y-[-1px]"
+                : "text-[#17251C] hover:bg-[#DDEBDD] hover:text-[#16834A] border border-[#253C2B] bg-white"
+            }`}
+          >
+            <HelpCircle
+              className={`w-4 h-4 shrink-0 ${
+                pathname === "/help" ? "text-[#B7F28B]" : "text-[#16834A]"
+              }`}
+            />
+            <span className="tracking-wider truncate">HELP & GUIDES</span>
+          </Link>
+        </div>
 
         {/* Role & Demo Switcher Footer */}
         <div className="p-3 border-t-2 border-[#253C2B] bg-[#F4F1E8]">
@@ -190,6 +219,7 @@ export function AppShell({
                   <Link
                     key={item.href}
                     href={item.href}
+                    data-tour={item.tourId}
                     onClick={() => setMobileDrawerOpen(false)}
                     className={`flex items-center space-x-2.5 px-3 py-2 text-xs font-mono font-bold uppercase transition-all rounded-[2px] ${
                       isActive
@@ -207,6 +237,22 @@ export function AppShell({
                 );
               })}
             </nav>
+
+            {/* Mobile Help Link */}
+            <div className="p-3 border-t border-[#253C2B] bg-[#F4F1E8]">
+              <Link
+                href="/help"
+                onClick={() => setMobileDrawerOpen(false)}
+                className={`flex items-center space-x-2.5 px-3 py-2 text-xs font-mono font-bold uppercase transition-all rounded-[2px] ${
+                  pathname === "/help"
+                    ? "bg-[#16834A] text-[#B7F28B] brutal-border"
+                    : "text-[#17251C] hover:bg-[#DDEBDD] border border-[#253C2B] bg-white"
+                }`}
+              >
+                <HelpCircle className="w-4 h-4 text-[#16834A]" />
+                <span className="tracking-wider">HELP & GUIDES</span>
+              </Link>
+            </div>
 
             {/* Mobile Footer */}
             <div className="p-3 border-t-2 border-[#253C2B] bg-[#F4F1E8] space-y-2">
@@ -283,7 +329,7 @@ export function AppShell({
               </div>
             </div>
 
-            {/* Right Actions: LED, Bell, New Audit, Profile */}
+            {/* Right Actions: LED, Bell, Help ?, New Audit, Profile */}
             <div className="flex items-center space-x-2 sm:space-x-3">
               {/* System status LED chip */}
               <div className="hidden sm:flex items-center space-x-2 px-2.5 py-1 bg-[#F4F1E8] brutal-border text-[11px] font-mono font-bold">
@@ -296,9 +342,25 @@ export function AppShell({
               {/* Notifications Popover */}
               <NotificationsPopover initialNotifications={notifications} />
 
+              {/* Contextual Help Center ? Button */}
+              <Link
+                href="/help"
+                data-tour="header-help"
+                title="Help Centre & Guides"
+                aria-label="Open Help Centre"
+                className={`p-2 brutal-border transition-colors flex items-center justify-center cursor-pointer ${
+                  pathname === "/help"
+                    ? "bg-[#16834A] text-[#B7F28B]"
+                    : "bg-[#F4F1E8] hover:bg-[#DDEBDD] text-[#17251C]"
+                }`}
+              >
+                <HelpCircle className="w-4 h-4" />
+              </Link>
+
               {/* + NEW AUDIT Button */}
               <Link
                 href="/studio"
+                data-tour="header-new-audit"
                 className="brutal-btn brutal-btn-primary px-3 py-1.5 text-xs flex items-center space-x-1"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -337,6 +399,22 @@ export function AppShell({
           {children}
         </main>
       </div>
+
+      {/* Guidance Modals & Overlays */}
+      <WelcomeModal
+        role={role}
+        userName={user.fullName}
+        isOpen={showWelcome}
+        onClose={() => setShowWelcome(false)}
+        onStartTour={() => setIsTourActive(true)}
+      />
+
+      <TourGuide
+        role={role}
+        isActive={isTourActive}
+        onClose={() => setIsTourActive(false)}
+        onOpenMobileDrawer={() => setMobileDrawerOpen(true)}
+      />
     </div>
   );
 }

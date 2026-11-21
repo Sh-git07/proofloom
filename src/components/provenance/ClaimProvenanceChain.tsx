@@ -20,6 +20,7 @@ import {
   ExternalLink,
   BookOpen,
 } from "lucide-react";
+import { HelpTip } from "@/components/guidance/HelpTip";
 
 export interface EvidenceMatchData {
   id: string;
@@ -427,8 +428,12 @@ export function ClaimProvenanceChain({
                       </span>
                     </div>
                   ) : (
-                    <div className="p-2 bg-[#D94C4C]/10 brutal-border font-mono text-[10px] font-extrabold text-[#D94C4C] uppercase text-center">
-                      NO APPROVED EVIDENCE FOUND
+                    <div className="p-2 bg-[#D94C4C]/10 brutal-border font-mono text-[10px] font-extrabold text-[#D94C4C] uppercase text-center flex items-center justify-center gap-1">
+                      <span>NO APPROVED EVIDENCE FOUND</span>
+                      <HelpTip
+                        text="Indicates that no active, approved, unexpired fact in the Knowledge Vault corroborates this statement."
+                        articleHash="evidence-matching"
+                      />
                     </div>
                   )}
                 </div>
@@ -469,6 +474,16 @@ export function ClaimProvenanceChain({
                   <div className="flex items-center space-x-1.5 text-[10px] font-mono font-extrabold mb-2 uppercase">
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>05 RESULT</span>
+                    <HelpTip
+                      text={[
+                        "VERIFIED: Matches active approved fact with excerpt provenance.",
+                        "PARTIALLY_SUPPORTED: Directional match with slight variance.",
+                        "CONTRADICTED: Directly conflicts with approved benchmark (CRITICAL).",
+                        "OUTDATED: Document expired or superseded.",
+                        "HUMAN_VERIFICATION_REQUIRED / UNSUPPORTED: Lacks approved evidence."
+                      ]}
+                      articleHash="claim-statuses"
+                    />
                   </div>
                   <span className="font-mono text-base font-black uppercase tracking-tight block">
                     {resultStatus}
@@ -553,8 +568,12 @@ export function ClaimProvenanceChain({
                       )}
                     </div>
                   ) : (
-                    <div className="p-3 bg-[#D94C4C]/10 border-2 border-[#D94C4C] text-[#D94C4C] font-bold mt-1">
-                      NO APPROVED EVIDENCE FOUND &mdash; This claim has no matching benchmark in the Brand Knowledge Vault.
+                    <div className="p-3 bg-[#D94C4C]/10 border-2 border-[#D94C4C] text-[#D94C4C] font-bold mt-1 flex items-center justify-between gap-2">
+                      <span>NO APPROVED EVIDENCE FOUND &mdash; This claim has no matching benchmark in the Brand Knowledge Vault.</span>
+                      <HelpTip
+                        text="No active, approved, unexpired fact in the Knowledge Vault matches this claim."
+                        articleHash="evidence-matching"
+                      />
                     </div>
                   )}
                 </div>
