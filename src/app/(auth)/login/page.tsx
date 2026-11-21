@@ -45,9 +45,19 @@ export default function LoginPage() {
         {/* Form */}
         <LoginForm />
 
-        {/* Demo Mode Quick Access & Try the Demo link */}
-        <div className="pt-4 border-t-2 border-[#253C2B] text-center space-y-3">
-          <p className="text-xs text-[#637367] font-mono">
+        {/* Links: Create an account & Try the demo */}
+        <div className="pt-4 border-t-2 border-[#253C2B] text-center space-y-2.5 font-mono text-xs">
+          <p className="text-[#637367]">
+            Don&apos;t have an account?{" "}
+            <Link
+              href="/signup"
+              className="text-[#16834A] font-bold underline hover:text-[#17251C] transition-colors"
+            >
+              Create an account
+            </Link>
+          </p>
+
+          <p className="text-[#637367]">
             Evaluating the platform?{" "}
             <Link
               href="/demo"
@@ -59,7 +69,7 @@ export default function LoginPage() {
           {isDemoEnabled && (
             <Link
               href="/demo"
-              className="inline-flex items-center justify-center space-x-2 w-full py-2 px-4 brutal-border bg-[#B7F28B] text-[#17251C] font-mono font-bold text-xs uppercase tracking-wider brutal-shadow-sm hover:translate-x-[-1px] hover:translate-y-[-1px] transition-all"
+              className="inline-flex items-center justify-center space-x-2 w-full py-2 px-4 brutal-border bg-[#B7F28B] text-[#17251C] font-mono font-bold text-xs uppercase tracking-wider brutal-shadow-sm hover:translate-x-[-1px] hover:translate-y-[-1px] transition-all mt-2"
             >
               <ShieldCheck className="w-4 h-4 text-[#16834A]" />
               <span>EXPLORE VIA DEMO PORTAL (4 ROLES) &rarr;</span>

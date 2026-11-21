@@ -349,7 +349,12 @@ export function ReviewQueueWorkbench({
             </div>
 
             <div className="space-y-2.5 max-h-[750px] overflow-y-auto">
-              {items.map((item) => {
+              {items.length === 0 ? (
+                <div className="p-6 bg-white brutal-border text-center font-mono text-xs text-[#637367]">
+                  No content items currently awaiting review in the queue. Submit drafts via the Content Studio.
+                </div>
+              ) : (
+                items.map((item) => {
                 const isSelected = item.id === selectedItemId;
                 const statusColor =
                   item.status === "APPROVED"
@@ -406,7 +411,8 @@ export function ReviewQueueWorkbench({
                     </div>
                   </div>
                 );
-              })}
+              })
+            )}
             </div>
           </div>
 
@@ -679,8 +685,13 @@ export function ReviewQueueWorkbench({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {challengesList.map((challenge) => {
+          {challengesList.length === 0 ? (
+            <div className="brutal-panel bg-white p-8 text-center font-mono text-xs text-[#637367]">
+              No contested findings currently in the Brand Memory Court queue.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {challengesList.map((challenge) => {
               const isPending = challenge.status === "PENDING";
 
               return (
@@ -742,6 +753,7 @@ export function ReviewQueueWorkbench({
               );
             })}
           </div>
+        )}
         </div>
       )}
 

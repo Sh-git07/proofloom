@@ -241,8 +241,16 @@ export function KnowledgeVaultTabs({
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {facts.map((fact) => {
+          {facts.length === 0 ? (
+            <div className="brutal-panel bg-white p-8 text-center space-y-2 font-mono">
+              <p className="font-bold text-sm text-[#17251C]">No approved facts registered yet.</p>
+              <p className="text-xs text-[#637367]">
+                Register factual corporate benchmarks or upload source documentation to create approved facts.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {facts.map((fact) => {
               const expiresDate = fact.expires_at ? new Date(fact.expires_at) : null;
               const isExpired = fact.approval_status === "EXPIRED" || (expiresDate && expiresDate < now);
               const daysRemaining = expiresDate
@@ -371,6 +379,7 @@ export function KnowledgeVaultTabs({
               );
             })}
           </div>
+        )}
         </div>
       )}
 
@@ -399,9 +408,17 @@ export function KnowledgeVaultTabs({
             )}
           </div>
 
-          <div className="brutal-panel bg-white p-4 space-y-3">
-            <div className="grid grid-cols-1 divide-y-2 divide-[#253C2B]/15">
-              {terms.map((term) => {
+          {terms.length === 0 ? (
+            <div className="brutal-panel bg-white p-8 text-center space-y-2 font-mono">
+              <p className="font-bold text-sm text-[#17251C]">No terminology rules defined yet.</p>
+              <p className="text-xs text-[#637367]">
+                Add approved and disallowed term pairs to enforce consistent brand language.
+              </p>
+            </div>
+          ) : (
+            <div className="brutal-panel bg-white p-4 space-y-3">
+              <div className="grid grid-cols-1 divide-y-2 divide-[#253C2B]/15">
+                {terms.map((term) => {
                 const severity = term.severity || "MEDIUM";
                 const sevColor =
                   severity === "CRITICAL"
@@ -468,6 +485,7 @@ export function KnowledgeVaultTabs({
               })}
             </div>
           </div>
+        )}
         </div>
       )}
 
@@ -496,8 +514,16 @@ export function KnowledgeVaultTabs({
             )}
           </div>
 
-          <div className="space-y-3 font-mono">
-            {guidelines.map((g) => {
+          {guidelines.length === 0 ? (
+            <div className="brutal-panel bg-white p-8 text-center space-y-2 font-mono">
+              <p className="font-bold text-sm text-[#17251C]">No brand voice guidelines published yet.</p>
+              <p className="text-xs text-[#637367]">
+                Define voice archetypes and tone standards for automated audit enforcement.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 font-mono">
+              {guidelines.map((g) => {
               const statusLower = (g.status || "published").toLowerCase();
               const isArchived = statusLower === "archived";
               const isDraft = statusLower === "draft";
@@ -584,6 +610,7 @@ export function KnowledgeVaultTabs({
               );
             })}
           </div>
+        )}
         </div>
       )}
 

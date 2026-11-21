@@ -39,7 +39,7 @@ export default function LandingPage() {
               SIGN IN
             </Link>
             <Link
-              href="/demo"
+              href="/signup"
               className="brutal-btn brutal-btn-primary px-4 py-1.5 text-xs font-mono font-bold"
             >
               START TRIAL &rarr;
@@ -68,7 +68,7 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/demo"
+              href="/signup"
               className="w-full sm:w-auto brutal-btn brutal-btn-lime px-8 py-3.5 text-sm font-bold tracking-wider"
             >
               START PROTECTING YOUR BRAND &rarr;

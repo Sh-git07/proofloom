@@ -26,6 +26,7 @@ import {
 import { computeChecklist } from "@/lib/guidance/checklist";
 import { OverviewChecklist } from "@/components/guidance/OverviewChecklist";
 import { HelpTip } from "@/components/guidance/HelpTip";
+import { SetUpBrandBanner } from "@/components/guidance/SetUpBrandBanner";
 
 export default async function OverviewPage() {
   const context = await getCurrentUserContext();
@@ -170,6 +171,11 @@ export default async function OverviewPage() {
           </Link>
         </div>
       </div>
+
+      {/* Set Up Your Brand Banner (shown when org has no brand knowledge) */}
+      {activeFactsCount === 0 && (
+        <SetUpBrandBanner />
+      )}
 
       {/* 2. Getting Started Checklist (Dismissible, Role-Appropriate) */}
       <OverviewChecklist
